@@ -42,7 +42,7 @@ jobs:
     - name: Run script
       env:
         # GitHubのSecretsに登録した値を「API_KEY」という名前でPythonに渡す
-        API_KEY: ${{ secrets.MY_SECRET_KEY }}
+        API_KEY: ${{ secrets.API_KEY }}
       run: python 株価取得.py # ★ここをあなたが実行したいPythonファイル名に変更してください
       
       # ★ここが重要！取得したデータをGitHubリポジトリに保存（コミット＆プッシュ）する
