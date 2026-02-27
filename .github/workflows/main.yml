@@ -36,7 +36,7 @@ jobs:
     - name: Install dependencies
       run: |
         python -m pip install --upgrade pip
-        # pip install -r requirements.txt  ← 外部ライブラリを使う場合はこの行の「#」を消す
+        pip install jquants-api-client pandas pyarrow python-dateutil
         
     # 4. 自分のPythonスクリプトを実行する
     - name: Run script
@@ -44,3 +44,13 @@ jobs:
         # GitHubのSecretsに登録した値を「API_KEY」という名前でPythonに渡す
         API_KEY: ${{ secrets.MY_SECRET_KEY }}
       run: python 株価取得.py # ★ここをあなたが実行したいPythonファイル名に変更してください
+      
+      # ★ここが重要！取得したデータをGitHubリポジトリに保存（コミット＆プッシュ）する
+    - name: Commit and Push changes
+      run: |
+        git config --global user.name "github-actions[bot]"
+        git config --global user.email "41898282+github-actions[bot]@users.noreply.github.com"
+        git add JQuantsData/
+        # 変更があればコミットする（[skip ci]を入れることで無限ループ実行を防ぐ）
+        git commit -m "Auto-update stock data [skip ci]" || echo "No changes to commit"
+        git push
