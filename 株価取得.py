@@ -1,17 +1,8 @@
-from google.colab import drive
-drive.mount('/content/drive')
-
-!pip -q install -U jquants-api-client pandas pyarrow python-dateutil
-
-
 import os, time
 from datetime import datetime, timedelta, date
 import pandas as pd
 from dateutil import tz
 import jquantsapi
-
-# ★ここだけ入れてください（ClientV2用）
-#JQUANTS_API_KEY = "IYayng6v_Ss5liLof3O5KMxqH0CuQA_FXYi4Lt3Gh68".strip()
 
 # GitHub Actionsから渡された環境変数を受け取る
 JQUANTS_API_KEY = os.environ.get("API_KEY")
@@ -20,10 +11,9 @@ if JQUANTS_API_KEY is None:
     print("エラー: シークレットキーが見つかりません！")
 else:
     print("キーを安全に取得できました。処理を開始します...")
-    # ここに my_secret を使った処理を書く
-    # ※ 注意: print(my_secret) のようにキー自体を画面に出力しないようにしてください！
 
-BASE_DIR = "/content/drive/MyDrive/JQuantsData"
+# ★保存先をGitHub Actionsの仮想環境内のフォルダに変更
+BASE_DIR = "./JQuantsData"
 DATA_DIR = os.path.join(BASE_DIR, "data")
 RUNS_DIR = os.path.join(DATA_DIR, "runs")
 
