@@ -31,7 +31,7 @@ jobs:
         
     - name: Run analysis script
       # ★先ほどのPythonコードを保存したファイル名に合わせてください
-      run: python portfolio.py 
+      run: python 株価分析アルゴリズム.py
       
     - name: Commit and Push changes
       # 生成された predict フォルダなどの結果をGitHubに保存
