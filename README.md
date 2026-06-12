@@ -55,6 +55,13 @@ data/derivatives_bars_daily_options_225.csv.gz
 data/indices_bars_daily_topix.csv.gz
 ```
 
+日付付きのままでも使えます。
+
+```text
+data/derivatives_bars_daily_options_225_20260611.csv.gz
+data/indices_bars_daily_topix_20260611.csv.gz
+```
+
 HTTP(S)で取得できるCSVがある場合:
 
 ```bash

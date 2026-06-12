@@ -28,11 +28,13 @@ date,expiry,type,strike,open_interest
 
 ## J-Quants生CSVを置く場合
 
-J-Quantsからダウンロードした以下のファイルもそのまま使えます。
+J-Quantsからダウンロードした以下のファイルもそのまま使えます。日付付きファイル名でも構いません。
 
 ```text
 data/derivatives_bars_daily_options_225.csv.gz
 data/indices_bars_daily_topix.csv.gz
+data/derivatives_bars_daily_options_225_20260611.csv.gz
+data/indices_bars_daily_topix_20260611.csv.gz
 ```
 
 またはgzipなし:
@@ -40,6 +42,8 @@ data/indices_bars_daily_topix.csv.gz
 ```text
 data/derivatives_bars_daily_options_225.csv
 data/indices_bars_daily_topix.csv
+data/derivatives_bars_daily_options_225_20260611.csv
+data/indices_bars_daily_topix_20260611.csv
 ```
 
 日経225オプションCSVは以下の列を読み取ります。
