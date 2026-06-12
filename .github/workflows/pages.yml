@@ -5,8 +5,8 @@ on:
     branches:
       - main
   schedule:
-    # 18:20 JST. Tokyo cash market is closed, and daily data is usually available.
-    - cron: "20 9 * * 1-5"
+    # 20:00 JST. GitHub Actions cron is UTC.
+    - cron: "0 11 * * 1-5"
   workflow_dispatch:
 
 permissions:

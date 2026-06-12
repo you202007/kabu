@@ -78,6 +78,8 @@ python work/fetch_market_data.py --jquants-refresh-token <token> --period 3mo
 
 GitHub Actionsでは、Repository Secretsに `JQUANTS_REFRESH_TOKEN` を設定すると、J-Quantsの日経225オプション四本値APIを優先して使用します。
 
+日次更新はGitHub Actionsで平日20:00 JSTに実行されます。
+
 ## GitHub Pages
 
 `.github/workflows/pages.yml` により、`main` ブランチへpushされるたびに以下を実行します。
