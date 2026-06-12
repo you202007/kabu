@@ -1,0 +1,299 @@
+<!doctype html>
+<html lang="ja">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>日経225 SQ歪みダッシュボード 試作</title>
+  <style>
+    :root {
+      color-scheme: light;
+      --ink: #172033;
+      --muted: #637083;
+      --line: #d9e0ea;
+      --panel: #ffffff;
+      --bg: #f4f7fb;
+      --up: #c5323a;
+      --down: #176f8f;
+      --accent: #5a6fdb;
+      --warn: #d98917;
+      --good: #18785d;
+    }
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      font-family: "Segoe UI", "Yu Gothic UI", "Meiryo", sans-serif;
+      background: var(--bg);
+      color: var(--ink);
+    }
+    header {
+      padding: 20px 28px 12px;
+      border-bottom: 1px solid var(--line);
+      background: #fff;
+    }
+    h1 {
+      margin: 0;
+      font-size: 22px;
+      font-weight: 700;
+      letter-spacing: 0;
+    }
+    .sub {
+      margin-top: 6px;
+      color: var(--muted);
+      font-size: 13px;
+    }
+    main {
+      padding: 20px 28px 32px;
+      display: grid;
+      gap: 18px;
+    }
+    .grid {
+      display: grid;
+      grid-template-columns: repeat(12, 1fr);
+      gap: 18px;
+    }
+    section {
+      background: var(--panel);
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      padding: 16px;
+      min-width: 0;
+    }
+    h2 {
+      margin: 0 0 12px;
+      font-size: 14px;
+      font-weight: 700;
+      letter-spacing: 0;
+    }
+    .span-3 { grid-column: span 3; }
+    .span-4 { grid-column: span 4; }
+    .span-5 { grid-column: span 5; }
+    .span-7 { grid-column: span 7; }
+    .span-8 { grid-column: span 8; }
+    .span-12 { grid-column: span 12; }
+    .metric {
+      display: flex;
+      align-items: baseline;
+      gap: 8px;
+    }
+    .metric strong {
+      font-size: 28px;
+      line-height: 1;
+    }
+    .metric small {
+      color: var(--muted);
+      font-size: 12px;
+    }
+    .badge {
+      display: inline-flex;
+      align-items: center;
+      height: 28px;
+      padding: 0 10px;
+      border-radius: 999px;
+      font-size: 12px;
+      font-weight: 700;
+      background: #fff2d8;
+      color: #7a4a00;
+      border: 1px solid #f2c66f;
+    }
+    .meter {
+      height: 12px;
+      border-radius: 999px;
+      overflow: hidden;
+      background: #e9eef5;
+      margin-top: 14px;
+    }
+    .meter > div {
+      height: 100%;
+      width: var(--value);
+      background: linear-gradient(90deg, var(--accent), var(--up));
+    }
+    .note {
+      color: var(--muted);
+      font-size: 12px;
+      margin-top: 10px;
+      line-height: 1.5;
+    }
+    svg {
+      width: 100%;
+      height: auto;
+      display: block;
+    }
+    .axis text { fill: var(--muted); font-size: 11px; }
+    .axis line, .axis path { stroke: var(--line); }
+    table {
+      width: 100%;
+      border-collapse: collapse;
+      font-size: 13px;
+    }
+    th, td {
+      padding: 8px 6px;
+      border-bottom: 1px solid var(--line);
+      text-align: right;
+      white-space: nowrap;
+    }
+    th:first-child, td:first-child { text-align: left; }
+    th { color: var(--muted); font-weight: 600; }
+    .pos { color: var(--up); font-weight: 700; }
+    .neg { color: var(--down); font-weight: 700; }
+    .legend {
+      display: flex;
+      gap: 14px;
+      flex-wrap: wrap;
+      color: var(--muted);
+      font-size: 12px;
+      margin-bottom: 8px;
+    }
+    .dot {
+      width: 9px;
+      height: 9px;
+      display: inline-block;
+      border-radius: 50%;
+      margin-right: 5px;
+    }
+    @media (max-width: 980px) {
+      .span-3, .span-4, .span-5, .span-7, .span-8 { grid-column: span 12; }
+      header, main { padding-left: 16px; padding-right: 16px; }
+    }
+  </style>
+</head>
+<body>
+  <header>
+    <h1>日経225 SQ歪みダッシュボード 試作</h1>
+    <div class="sub">サンプルデータ表示。実装時は日次寄与度、オプション建玉、先物ベーシス、SQカレンダーを接続する。</div>
+  </header>
+
+  <main>
+    <div class="grid">
+      <section class="span-3">
+        <h2>上方向SQ圧力</h2>
+        <div class="metric"><strong class="pos">1.42</strong><small>z-score</small></div>
+        <div class="meter" style="--value: 78%"><div></div></div>
+        <div class="note">高寄与度銘柄の上昇、先物ベーシス、上方ストライク建玉が重なった状態。</div>
+      </section>
+
+      <section class="span-3">
+        <h2>下方向剥落リスク</h2>
+        <div class="metric"><strong class="neg">0.66</strong><small>z-score</small></div>
+        <div class="meter" style="--value: 46%"><div style="background: linear-gradient(90deg, var(--down), var(--warn));"></div></div>
+        <div class="note">指数歪みは強いが、SQ通過前のため剥落リスクは中程度。</div>
+      </section>
+
+      <section class="span-3">
+        <h2>推定勝率</h2>
+        <div class="metric"><strong>64%</strong><small>翌日上昇</small></div>
+        <div class="meter" style="--value: 64%"><div style="background: linear-gradient(90deg, var(--good), var(--accent));"></div></div>
+        <div class="note">閾値60%超。方向は上優位だが、過熱判定も同時に確認する。</div>
+      </section>
+
+      <section class="span-3">
+        <h2>判定</h2>
+        <span class="badge">上方向優位・過熱注意</span>
+        <div class="note">SQまで2営業日。TOPIX追随が弱い場合は、SQ後3営業日の反落を監視。</div>
+      </section>
+
+      <section class="span-7">
+        <h2>指数と歪みスコア</h2>
+        <div class="legend">
+          <span><i class="dot" style="background: var(--ink);"></i>日経225</span>
+          <span><i class="dot" style="background: var(--up);"></i>SQ上方向圧力</span>
+          <span><i class="dot" style="background: var(--down);"></i>下方向リスク</span>
+        </div>
+        <svg viewBox="0 0 760 280" role="img" aria-label="指数と歪みスコアの推移">
+          <rect x="0" y="0" width="760" height="280" fill="#fff"/>
+          <g stroke="#d9e0ea" stroke-width="1">
+            <line x1="42" y1="30" x2="735" y2="30"/>
+            <line x1="42" y1="85" x2="735" y2="85"/>
+            <line x1="42" y1="140" x2="735" y2="140"/>
+            <line x1="42" y1="195" x2="735" y2="195"/>
+            <line x1="42" y1="250" x2="735" y2="250"/>
+          </g>
+          <rect x="580" y="30" width="96" height="220" fill="#fff6df" opacity="0.9"/>
+          <text x="592" y="48" fill="#946000" font-size="11">SQ前5営業日</text>
+          <polyline fill="none" stroke="#172033" stroke-width="3" points="45,212 110,205 175,190 240,178 305,164 370,156 435,143 500,132 565,104 630,82 695,76 735,70"/>
+          <polyline fill="none" stroke="#c5323a" stroke-width="3" points="45,210 110,202 175,198 240,186 305,170 370,166 435,150 500,138 565,98 630,64 695,58 735,52"/>
+          <polyline fill="none" stroke="#176f8f" stroke-width="3" points="45,182 110,180 175,176 240,168 305,160 370,158 435,154 500,148 565,142 630,132 695,118 735,110"/>
+          <g class="axis">
+            <text x="42" y="270">T-10</text>
+            <text x="370" y="270">T-5</text>
+            <text x="630" y="270">T-1</text>
+            <text x="704" y="270">SQ</text>
+          </g>
+        </svg>
+      </section>
+
+      <section class="span-5">
+        <h2>寄与度上位銘柄</h2>
+        <table>
+          <thead>
+            <tr><th>銘柄</th><th>当日寄与</th><th>5日累積</th><th>方向</th></tr>
+          </thead>
+          <tbody>
+            <tr><td>6857 アドバンテスト</td><td class="pos">+86.4</td><td class="pos">+312.8</td><td class="pos">上</td></tr>
+            <tr><td>9984 ソフトバンクG</td><td class="pos">+62.1</td><td class="pos">+201.4</td><td class="pos">上</td></tr>
+            <tr><td>285A キオクシア</td><td class="pos">+41.7</td><td class="pos">+144.9</td><td class="pos">上</td></tr>
+            <tr><td>5803 フジクラ</td><td class="pos">+35.2</td><td class="pos">+118.6</td><td class="pos">上</td></tr>
+            <tr><td>8035 東京エレクトロン</td><td class="neg">-18.8</td><td class="pos">+74.3</td><td>混在</td></tr>
+          </tbody>
+        </table>
+      </section>
+
+      <section class="span-8">
+        <h2>オプション建玉ストライク分布</h2>
+        <div class="legend">
+          <span><i class="dot" style="background: var(--up);"></i>Call OI</span>
+          <span><i class="dot" style="background: var(--down);"></i>Put OI</span>
+          <span>縦線: 現在値</span>
+        </div>
+        <svg viewBox="0 0 860 300" role="img" aria-label="オプション建玉分布">
+          <rect width="860" height="300" fill="#fff"/>
+          <g stroke="#d9e0ea">
+            <line x1="50" y1="250" x2="820" y2="250"/>
+            <line x1="50" y1="60" x2="50" y2="250"/>
+          </g>
+          <g>
+            <rect x="90" y="188" width="34" height="62" fill="#176f8f"/>
+            <rect x="145" y="165" width="34" height="85" fill="#176f8f"/>
+            <rect x="200" y="128" width="34" height="122" fill="#176f8f"/>
+            <rect x="255" y="154" width="34" height="96" fill="#176f8f"/>
+            <rect x="310" y="182" width="34" height="68" fill="#176f8f"/>
+            <rect x="365" y="204" width="34" height="46" fill="#176f8f"/>
+            <rect x="420" y="196" width="34" height="54" fill="#c5323a"/>
+            <rect x="475" y="172" width="34" height="78" fill="#c5323a"/>
+            <rect x="530" y="120" width="34" height="130" fill="#c5323a"/>
+            <rect x="585" y="102" width="34" height="148" fill="#c5323a"/>
+            <rect x="640" y="146" width="34" height="104" fill="#c5323a"/>
+            <rect x="695" y="178" width="34" height="72" fill="#c5323a"/>
+          </g>
+          <line x1="470" y1="50" x2="470" y2="258" stroke="#172033" stroke-width="2" stroke-dasharray="5 4"/>
+          <text x="482" y="66" fill="#172033" font-size="12">Nikkei 64,217</text>
+          <g fill="#637083" font-size="11">
+            <text x="84" y="272">61k</text>
+            <text x="194" y="272">62k</text>
+            <text x="304" y="272">63k</text>
+            <text x="414" y="272">64k</text>
+            <text x="524" y="272">65k</text>
+            <text x="634" y="272">66k</text>
+            <text x="694" y="272">67k</text>
+          </g>
+        </svg>
+      </section>
+
+      <section class="span-4">
+        <h2>歪み内訳</h2>
+        <table>
+          <thead>
+            <tr><th>指標</th><th>値</th><th>判定</th></tr>
+          </thead>
+          <tbody>
+            <tr><td>寄与度トレンド</td><td class="pos">+1.31</td><td>強い</td></tr>
+            <tr><td>ストライク吸引</td><td class="pos">+1.08</td><td>上方</td></tr>
+            <tr><td>時間圧力</td><td>0.60</td><td>SQ近い</td></tr>
+            <tr><td>先物ベーシス</td><td class="pos">+0.74</td><td>買い優勢</td></tr>
+            <tr><td>指数歪み</td><td class="pos">+1.52</td><td>集中</td></tr>
+          </tbody>
+        </table>
+      </section>
+    </div>
+  </main>
+</body>
+</html>
