@@ -125,9 +125,17 @@ def fetch_index_daily(out_dir: Path, constituents: pd.DataFrame, period: str) ->
     nikkei = download_symbol("^N225", period)
     try:
         topix = download_symbol("^TOPX", period)
+        topix_source = "Yahoo Finance ^TOPX"
     except RuntimeError:
-        topix = nikkei.copy()
-        topix[["Open", "High", "Low", "Close"]] = topix[["Open", "High", "Low", "Close"]] / 20
+        try:
+            # 1306.T is the NEXT FUNDS TOPIX ETF. It is not the index itself,
+            # but it is a better breadth proxy than scaling Nikkei 225.
+            topix = download_symbol("1306.T", period)
+            topix_source = "Yahoo Finance 1306.T TOPIX ETF proxy"
+        except RuntimeError:
+            topix = nikkei.copy()
+            topix[["Open", "High", "Low", "Close"]] = topix[["Open", "High", "Low", "Close"]] / 20
+            topix_source = "Nikkei scaled fallback"
 
     nikkei["Date"] = pd.to_datetime(nikkei["Date"]).dt.date
     topix["Date"] = pd.to_datetime(topix["Date"]).dt.date
@@ -167,6 +175,10 @@ def fetch_index_daily(out_dir: Path, constituents: pd.DataFrame, period: str) ->
         ]
     ]
     out.to_csv(out_dir / "index_daily.csv", index=False, encoding="utf-8")
+    (out_dir / "index_source_metadata.json").write_text(
+        json.dumps({"topix_source": topix_source}, ensure_ascii=False, indent=2),
+        encoding="utf-8",
+    )
     return out
 
 
@@ -217,12 +229,22 @@ def copy_options(options_csv: Path, out_dir: Path) -> None:
     shutil.copyfile(options_csv, out_dir / "options_oi.csv")
 
 
+def download_options_csv(options_url: str, out_dir: Path) -> None:
+    df = pd.read_csv(options_url)
+    required = {"date", "expiry", "type", "strike", "open_interest"}
+    missing = sorted(required - set(df.columns))
+    if missing:
+        raise ValueError(f"Downloaded options CSV missing columns: {', '.join(missing)}")
+    df.to_csv(out_dir / "options_oi.csv", index=False, encoding="utf-8")
+
+
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description="Fetch market data and build SQ dashboard inputs.")
     parser.add_argument("--input-dir", type=Path, default=Path("work/input_data"))
     parser.add_argument("--output-dir", type=Path, default=Path("outputs"))
     parser.add_argument("--period", default="3mo")
     parser.add_argument("--options-csv", type=Path)
+    parser.add_argument("--options-url", help="HTTP(S) URL for a real options_oi.csv file.")
     parser.add_argument(
         "--allow-proxy-options",
         action="store_true",
@@ -245,7 +267,11 @@ def main() -> None:
     index_daily = fetch_index_daily(args.input_dir, constituents, args.period)
     sq_calendar = make_sq_calendar(args.input_dir, date.today())
 
-    if args.options_csv:
+    if args.options_url:
+        download_options_csv(args.options_url, args.input_dir)
+        metadata["option_oi_source"] = args.options_url
+        metadata["option_oi_is_proxy"] = False
+    elif args.options_csv:
         copy_options(args.options_csv, args.input_dir)
         metadata["option_oi_source"] = str(args.options_csv)
         metadata["option_oi_is_proxy"] = False

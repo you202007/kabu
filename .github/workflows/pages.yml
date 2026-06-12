@@ -34,8 +34,14 @@ jobs:
         run: pip install -r requirements.txt
 
       - name: Generate dashboard
+        env:
+          OPTIONS_OI_URL: ${{ secrets.OPTIONS_OI_URL }}
         run: |
-          python work/fetch_market_data.py --allow-proxy-options --period 3mo --output-dir outputs
+          if [ -n "$OPTIONS_OI_URL" ]; then
+            python work/fetch_market_data.py --options-url "$OPTIONS_OI_URL" --period 3mo --output-dir outputs
+          else
+            python work/fetch_market_data.py --allow-proxy-options --period 3mo --output-dir outputs
+          fi
           cp outputs/sq_distortion_dashboard_generated.html outputs/index.html
 
       - name: Setup Pages

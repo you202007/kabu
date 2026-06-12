@@ -46,6 +46,12 @@ python work/fetch_market_data.py --allow-proxy-options --period 3mo
 python work/fetch_market_data.py --options-csv path/to/options_oi.csv --period 3mo
 ```
 
+HTTP(S)で取得できるCSVがある場合:
+
+```bash
+python work/fetch_market_data.py --options-url https://example.com/options_oi.csv --period 3mo
+```
+
 注意: `--allow-proxy-options` はダッシュボード更新用の暫定値です。売買判断や勝率検証には、JPX/OSE由来の実建玉データを `options_oi.csv` として接続してください。
 
 ## GitHub Pages
