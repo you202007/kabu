@@ -26,6 +26,13 @@ import yfinance as yf
 
 from sq_distortion_model import ModelConfig, run_pipeline
 
+try:
+    import jquantsapi
+    from jquantsapi.client_v2 import ClientV2 as JQuantsClient
+except ImportError:  # pragma: no cover - optional dependency path
+    jquantsapi = None
+    JQuantsClient = None
+
 
 TRACKED_COMPONENTS = [
     {"ticker": "285A", "yf": "285A.T", "name": "キオクシア", "adj_factor": 0.82},
@@ -238,6 +245,104 @@ def download_options_csv(options_url: str, out_dir: Path) -> None:
     df.to_csv(out_dir / "options_oi.csv", index=False, encoding="utf-8")
 
 
+def first_existing_column(df: pd.DataFrame, candidates: list[str]) -> str | None:
+    normalized = {str(col).lower().replace("_", ""): col for col in df.columns}
+    for candidate in candidates:
+        key = candidate.lower().replace("_", "")
+        if key in normalized:
+            return normalized[key]
+    return None
+
+
+def normalize_jquants_options(raw: pd.DataFrame) -> pd.DataFrame:
+    if raw.empty:
+        return pd.DataFrame(columns=["date", "expiry", "type", "strike", "open_interest"])
+
+    date_col = first_existing_column(raw, ["Date", "date"])
+    expiry_col = first_existing_column(
+        raw,
+        ["ContractMonth", "ContractMonthDate", "LastTradingDay", "ExerciseDate", "ExpirationDate", "Expiry"],
+    )
+    type_col = first_existing_column(
+        raw,
+        ["PutCallDivision", "PutCall", "OptionType", "Type", "CallPutDivision"],
+    )
+    strike_col = first_existing_column(raw, ["StrikePrice", "ExercisePrice", "Strike", "strike"])
+    oi_col = first_existing_column(
+        raw,
+        ["OpenInterest", "OpenInterestVolume", "OutstandingVolume", "OpenInterestQty", "OI"],
+    )
+
+    missing = [
+        label
+        for label, col in {
+            "date": date_col,
+            "type": type_col,
+            "strike": strike_col,
+            "open_interest": oi_col,
+        }.items()
+        if col is None
+    ]
+    if missing:
+        raise ValueError(
+            "J-Quants options data could not be mapped to options_oi.csv. "
+            f"Missing: {', '.join(missing)}. Returned columns: {', '.join(map(str, raw.columns))}"
+        )
+
+    out = pd.DataFrame()
+    out["date"] = pd.to_datetime(raw[date_col]).dt.strftime("%Y-%m-%d")
+    if expiry_col is None:
+        out["expiry"] = out["date"]
+    else:
+        expiry = raw[expiry_col].astype(str).str.replace("/", "-", regex=False)
+        yyyymm = expiry.str.fullmatch(r"\d{6}")
+        parsed = pd.to_datetime(expiry.where(~yyyymm, expiry + "01"), errors="coerce")
+        out["expiry"] = parsed.dt.strftime("%Y-%m-%d").fillna(expiry)
+
+    opt_type = raw[type_col].astype(str).str.upper()
+    out["type"] = np.select(
+        [
+            opt_type.str.contains("CALL") | opt_type.isin(["C", "1", "01"]),
+            opt_type.str.contains("PUT") | opt_type.isin(["P", "2", "02"]),
+        ],
+        ["C", "P"],
+        default=opt_type.str[0],
+    )
+    out["strike"] = pd.to_numeric(raw[strike_col], errors="coerce")
+    out["open_interest"] = pd.to_numeric(raw[oi_col], errors="coerce")
+    out = out.dropna(subset=["date", "type", "strike", "open_interest"])
+    out = out[out["type"].isin(["C", "P"])]
+    return out
+
+
+def fetch_jquants_options(
+    out_dir: Path,
+    dates: pd.Series,
+    *,
+    refresh_token: str | None = None,
+    mail_address: str | None = None,
+    password: str | None = None,
+) -> None:
+    if JQuantsClient is None:
+        raise RuntimeError("jquants-api-client is not installed.")
+    if refresh_token:
+        client = JQuantsClient(refresh_token=refresh_token)
+    elif mail_address and password:
+        client = JQuantsClient(mail_address=mail_address, password=password)
+    else:
+        raise RuntimeError("J-Quants credentials are required.")
+
+    frames = []
+    for current in pd.to_datetime(dates).dt.strftime("%Y%m%d").drop_duplicates():
+        raw = client.get_drv_bars_daily_opt_225(current)
+        if not raw.empty:
+            frames.append(normalize_jquants_options(raw))
+    if not frames:
+        raise RuntimeError("J-Quants returned no Nikkei 225 option data for the requested dates.")
+    options = pd.concat(frames, ignore_index=True)
+    options.to_csv(out_dir / "options_oi.csv", index=False, encoding="utf-8")
+
+
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description="Fetch market data and build SQ dashboard inputs.")
     parser.add_argument("--input-dir", type=Path, default=Path("work/input_data"))
@@ -245,6 +350,9 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--period", default="3mo")
     parser.add_argument("--options-csv", type=Path)
     parser.add_argument("--options-url", help="HTTP(S) URL for a real options_oi.csv file.")
+    parser.add_argument("--jquants-refresh-token")
+    parser.add_argument("--jquants-mail")
+    parser.add_argument("--jquants-password")
     parser.add_argument(
         "--allow-proxy-options",
         action="store_true",
@@ -267,7 +375,17 @@ def main() -> None:
     index_daily = fetch_index_daily(args.input_dir, constituents, args.period)
     sq_calendar = make_sq_calendar(args.input_dir, date.today())
 
-    if args.options_url:
+    if args.jquants_refresh_token or (args.jquants_mail and args.jquants_password):
+        fetch_jquants_options(
+            args.input_dir,
+            index_daily["date"],
+            refresh_token=args.jquants_refresh_token,
+            mail_address=args.jquants_mail,
+            password=args.jquants_password,
+        )
+        metadata["option_oi_source"] = "J-Quants /derivatives/bars/daily/options/225"
+        metadata["option_oi_is_proxy"] = False
+    elif args.options_url:
         download_options_csv(args.options_url, args.input_dir)
         metadata["option_oi_source"] = args.options_url
         metadata["option_oi_is_proxy"] = False
