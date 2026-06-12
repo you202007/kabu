@@ -365,6 +365,20 @@ def write_dashboard(
         "DOWN_BIAS": "下方向優位",
         "NEUTRAL": "中立",
     }.get(str(latest["signal"]), "中立")
+    metadata_path = out_path.parent / "data_source_metadata.json"
+    source_notice = ""
+    if metadata_path.exists():
+        try:
+            metadata = json.loads(metadata_path.read_text(encoding="utf-8"))
+            source_notice = (
+                f"価格: {metadata.get('price_source', '-')} / "
+                f"構成銘柄: {metadata.get('constituent_mode', '-')} / "
+                f"オプション建玉: {metadata.get('option_oi_source', '-')}"
+            )
+            if metadata.get("option_oi_is_proxy"):
+                source_notice += " / 注意: オプション建玉は暫定プロキシ"
+        except json.JSONDecodeError:
+            source_notice = ""
 
     html = f"""<!doctype html>
 <html lang="ja">
@@ -387,6 +401,7 @@ def write_dashboard(
     .metric {{ display:flex; align-items:baseline; gap:8px; }} .metric strong {{ font-size:28px; line-height:1; }} .metric small,.note {{ color:var(--muted); font-size:12px; }}
     .note {{ margin-top:10px; line-height:1.5; }}
     .badge {{ display:inline-flex; align-items:center; min-height:28px; padding:0 10px; border-radius:999px; font-size:12px; font-weight:700; background:#fff2d8; color:#7a4a00; border:1px solid #f2c66f; }}
+    .notice {{ margin-top:10px; padding:10px 12px; border:1px solid #f2c66f; background:#fff8e8; color:#6e4b00; border-radius:8px; font-size:12px; line-height:1.5; }}
     .meter {{ height:12px; border-radius:999px; overflow:hidden; background:#e9eef5; margin-top:14px; }} .meter div {{ height:100%; width:var(--value); background:linear-gradient(90deg,var(--accent),var(--up)); }}
     table {{ width:100%; border-collapse:collapse; font-size:13px; }} th,td {{ padding:8px 6px; border-bottom:1px solid var(--line); text-align:right; white-space:nowrap; }} th:first-child,td:first-child {{ text-align:left; }} th {{ color:var(--muted); font-weight:600; }}
     .pos {{ color:var(--up); font-weight:700; }} .neg {{ color:var(--down); font-weight:700; }}
@@ -399,6 +414,7 @@ def write_dashboard(
   <header>
     <h1>日経225 SQ歪みダッシュボード</h1>
     <div class="sub">基準日: {latest_date} / 次回SQ: {latest['next_sq_date'].strftime('%Y-%m-%d')} / 入力データから自動生成</div>
+    {f'<div class="notice">{source_notice}</div>' if source_notice else ''}
   </header>
   <main>
     <div class="grid">

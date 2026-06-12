@@ -4,6 +4,9 @@ on:
   push:
     branches:
       - main
+  schedule:
+    # 18:20 JST. Tokyo cash market is closed, and daily data is usually available.
+    - cron: "20 9 * * 1-5"
   workflow_dispatch:
 
 permissions:
@@ -32,7 +35,7 @@ jobs:
 
       - name: Generate dashboard
         run: |
-          python work/sq_distortion_model.py --generate-sample --output-dir outputs
+          python work/fetch_market_data.py --allow-proxy-options --period 3mo --output-dir outputs
           cp outputs/sq_distortion_dashboard_generated.html outputs/index.html
 
       - name: Setup Pages

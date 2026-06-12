@@ -32,13 +32,30 @@ python work/sq_distortion_model.py --input-dir work/input_data --output-dir outp
 
 入力CSVの仕様は `outputs/sq_data_schema.md` を参照してください。
 
+## Market Data Run
+
+株価・指数をYahoo Financeから取得し、オプション建玉は暫定プロキシで生成します。
+
+```bash
+python work/fetch_market_data.py --allow-proxy-options --period 3mo
+```
+
+実際の日経225オプション建玉CSVがある場合:
+
+```bash
+python work/fetch_market_data.py --options-csv path/to/options_oi.csv --period 3mo
+```
+
+注意: `--allow-proxy-options` はダッシュボード更新用の暫定値です。売買判断や勝率検証には、JPX/OSE由来の実建玉データを `options_oi.csv` として接続してください。
+
 ## GitHub Pages
 
 `.github/workflows/pages.yml` により、`main` ブランチへpushされるたびに以下を実行します。
 
 1. Python依存関係をインストール
-2. サンプルデータでスコアとダッシュボードを生成
-3. `outputs/sq_distortion_dashboard_generated.html` を `outputs/index.html` にコピー
-4. `outputs` ディレクトリをGitHub Pagesへデプロイ
+2. Yahoo Financeから株価・指数を取得
+3. オプション建玉CSVがない場合は暫定プロキシを生成
+4. `outputs/sq_distortion_dashboard_generated.html` を `outputs/index.html` にコピー
+5. `outputs` ディレクトリをGitHub Pagesへデプロイ
 
-実データ接続後は、Workflowの `--generate-sample` を外し、データ取得処理を前段に追加します。
+実際のオプション建玉を接続する場合は、WorkflowにCSV取得処理を追加し、`--allow-proxy-options` を外します。
