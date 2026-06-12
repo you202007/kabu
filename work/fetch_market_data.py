@@ -128,8 +128,14 @@ def atr_from_history(hist: pd.DataFrame, window: int = 14) -> pd.Series:
     return true_range.rolling(window, min_periods=3).mean().bfill()
 
 
-def fetch_index_daily(out_dir: Path, constituents: pd.DataFrame, period: str) -> pd.DataFrame:
+def fetch_index_daily(
+    out_dir: Path,
+    constituents: pd.DataFrame,
+    period: str,
+    topix_csv: Path | None = None,
+) -> pd.DataFrame:
     nikkei = download_symbol("^N225", period)
+    topix_override_dates: set[date] = set()
     try:
         topix = download_symbol("^TOPX", period)
         topix_source = "Yahoo Finance ^TOPX"
@@ -143,6 +149,28 @@ def fetch_index_daily(out_dir: Path, constituents: pd.DataFrame, period: str) ->
             topix = nikkei.copy()
             topix[["Open", "High", "Low", "Close"]] = topix[["Open", "High", "Low", "Close"]] / 20
             topix_source = "Nikkei scaled fallback"
+    if topix_csv:
+        topix_override = pd.read_csv(topix_csv)
+        topix_override = topix_override.rename(columns={"O": "Open", "H": "High", "L": "Low", "C": "Close"})
+        topix["Date"] = pd.to_datetime(topix["Date"]).dt.date
+        topix_override["Date"] = pd.to_datetime(topix_override["Date"]).dt.date
+        topix_override_dates = set(topix_override["Date"])
+        topix = topix.sort_values("Date")
+        topix["__base_close"] = topix["Close"]
+        topix["__base_prev_close"] = topix["Close"].shift(1)
+        topix = (
+            topix.set_index("Date")
+            .combine_first(topix_override.set_index("Date"))
+            .reset_index()
+        )
+        for col in ["Open", "High", "Low", "Close"]:
+            override_map = topix_override.set_index("Date")[col]
+            topix[col] = topix["Date"].map(override_map).fillna(topix[col])
+        topix_source = f"{topix_source}; J-Quants override {topix_csv}"
+    else:
+        topix = topix.sort_values("Date")
+        topix["__base_close"] = topix["Close"]
+        topix["__base_prev_close"] = topix["Close"].shift(1)
 
     nikkei["Date"] = pd.to_datetime(nikkei["Date"]).dt.date
     topix["Date"] = pd.to_datetime(topix["Date"]).dt.date
@@ -154,8 +182,18 @@ def fetch_index_daily(out_dir: Path, constituents: pd.DataFrame, period: str) ->
     )
     idx["nikkei_prev_close"] = idx["nikkei_close"].shift(1)
     idx["nikkei_atr"] = atr_from_history(nikkei)
-    tp = topix[["Date", "Close"]].rename(columns={"Date": "date", "Close": "topix_close"})
+    tp = topix[["Date", "Close", "__base_close", "__base_prev_close"]].rename(
+        columns={"Date": "date", "Close": "topix_close"}
+    )
     tp["topix_prev_close"] = tp["topix_close"].shift(1)
+    if topix_override_dates:
+        needs_level_adjustment = tp["date"].isin(topix_override_dates) & ~tp["date"].shift(1).isin(topix_override_dates)
+        needs_reverse_adjustment = ~tp["date"].isin(topix_override_dates) & tp["date"].shift(1).isin(topix_override_dates)
+        base_return = tp["__base_close"] / tp["__base_prev_close"] - 1
+        adjusted_prev = tp["topix_close"] / (1 + base_return)
+        tp.loc[needs_level_adjustment & np.isfinite(adjusted_prev), "topix_prev_close"] = adjusted_prev
+        tp.loc[needs_reverse_adjustment & np.isfinite(adjusted_prev), "topix_prev_close"] = adjusted_prev
+    tp = tp.drop(columns=["__base_close", "__base_prev_close"])
     idx = idx.merge(tp, on="date", how="inner")
 
     cons = constituents.copy()
@@ -232,17 +270,38 @@ def make_proxy_options(out_dir: Path, index_daily: pd.DataFrame, sq_calendar: pd
     return df
 
 
+def write_options_file(df: pd.DataFrame, out_dir: Path) -> None:
+    required = {"date", "expiry", "type", "strike", "open_interest"}
+    missing = sorted(required - set(df.columns))
+    if missing:
+        raise ValueError(f"options_oi.csv missing columns: {', '.join(missing)}")
+    df[["date", "expiry", "type", "strike", "open_interest"]].to_csv(
+        out_dir / "options_oi.csv",
+        index=False,
+        encoding="utf-8",
+    )
+
+
+def normalize_options_file(raw: pd.DataFrame) -> pd.DataFrame:
+    required = {"date", "expiry", "type", "strike", "open_interest"}
+    if required.issubset(raw.columns):
+        return raw[["date", "expiry", "type", "strike", "open_interest"]].copy()
+    if {"Date", "OI", "Strike", "PCDiv"}.issubset(raw.columns):
+        return normalize_jquants_options(raw)
+    raise ValueError(
+        "Options CSV must be normalized options_oi.csv or J-Quants "
+        f"derivatives_bars_daily_options_225 CSV. Returned columns: {', '.join(map(str, raw.columns))}"
+    )
+
+
 def copy_options(options_csv: Path, out_dir: Path) -> None:
-    shutil.copyfile(options_csv, out_dir / "options_oi.csv")
+    raw = pd.read_csv(options_csv)
+    write_options_file(normalize_options_file(raw), out_dir)
 
 
 def download_options_csv(options_url: str, out_dir: Path) -> None:
     df = pd.read_csv(options_url)
-    required = {"date", "expiry", "type", "strike", "open_interest"}
-    missing = sorted(required - set(df.columns))
-    if missing:
-        raise ValueError(f"Downloaded options CSV missing columns: {', '.join(missing)}")
-    df.to_csv(out_dir / "options_oi.csv", index=False, encoding="utf-8")
+    write_options_file(normalize_options_file(df), out_dir)
 
 
 def first_existing_column(df: pd.DataFrame, candidates: list[str]) -> str | None:
@@ -261,11 +320,11 @@ def normalize_jquants_options(raw: pd.DataFrame) -> pd.DataFrame:
     date_col = first_existing_column(raw, ["Date", "date"])
     expiry_col = first_existing_column(
         raw,
-        ["ContractMonth", "ContractMonthDate", "LastTradingDay", "ExerciseDate", "ExpirationDate", "Expiry"],
+        ["SQD", "ContractMonth", "ContractMonthDate", "LastTradingDay", "ExerciseDate", "ExpirationDate", "Expiry"],
     )
     type_col = first_existing_column(
         raw,
-        ["PutCallDivision", "PutCall", "OptionType", "Type", "CallPutDivision"],
+        ["PCDiv", "PutCallDivision", "PutCall", "OptionType", "Type", "CallPutDivision"],
     )
     strike_col = first_existing_column(raw, ["StrikePrice", "ExercisePrice", "Strike", "strike"])
     oi_col = first_existing_column(
@@ -299,15 +358,23 @@ def normalize_jquants_options(raw: pd.DataFrame) -> pd.DataFrame:
         parsed = pd.to_datetime(expiry.where(~yyyymm, expiry + "01"), errors="coerce")
         out["expiry"] = parsed.dt.strftime("%Y-%m-%d").fillna(expiry)
 
-    opt_type = raw[type_col].astype(str).str.upper()
-    out["type"] = np.select(
-        [
-            opt_type.str.contains("CALL") | opt_type.isin(["C", "1", "01"]),
-            opt_type.str.contains("PUT") | opt_type.isin(["P", "2", "02"]),
-        ],
-        ["C", "P"],
-        default=opt_type.str[0],
-    )
+    opt_type = raw[type_col].astype(str).str.upper().str.strip()
+    type_key = str(type_col).lower().replace("_", "")
+    if type_key in {"pcdiv", "putcalldivision", "callputdivision"}:
+        out["type"] = np.select(
+            [opt_type.isin(["1", "01"]), opt_type.isin(["2", "02"])],
+            ["P", "C"],
+            default=opt_type.str[0],
+        )
+    else:
+        out["type"] = np.select(
+            [
+                opt_type.str.contains("CALL") | opt_type.isin(["C"]),
+                opt_type.str.contains("PUT") | opt_type.isin(["P"]),
+            ],
+            ["C", "P"],
+            default=opt_type.str[0],
+        )
     out["strike"] = pd.to_numeric(raw[strike_col], errors="coerce")
     out["open_interest"] = pd.to_numeric(raw[oi_col], errors="coerce")
     out = out.dropna(subset=["date", "type", "strike", "open_interest"])
@@ -350,6 +417,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--period", default="3mo")
     parser.add_argument("--options-csv", type=Path)
     parser.add_argument("--options-url", help="HTTP(S) URL for a real options_oi.csv file.")
+    parser.add_argument("--topix-csv", type=Path, help="J-Quants indices_bars_daily_topix CSV or CSV.GZ.")
     parser.add_argument("--jquants-refresh-token")
     parser.add_argument("--jquants-mail")
     parser.add_argument("--jquants-password")
@@ -372,7 +440,7 @@ def main() -> None:
     }
 
     constituents = fetch_constituents(args.input_dir, args.period)
-    index_daily = fetch_index_daily(args.input_dir, constituents, args.period)
+    index_daily = fetch_index_daily(args.input_dir, constituents, args.period, args.topix_csv)
     sq_calendar = make_sq_calendar(args.input_dir, date.today())
 
     if args.jquants_refresh_token or (args.jquants_mail and args.jquants_password):

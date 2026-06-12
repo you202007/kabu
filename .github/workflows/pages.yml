@@ -42,6 +42,10 @@ jobs:
             python work/fetch_market_data.py --jquants-refresh-token "$JQUANTS_REFRESH_TOKEN" --period 3mo --output-dir outputs
           elif [ -n "$OPTIONS_OI_URL" ]; then
             python work/fetch_market_data.py --options-url "$OPTIONS_OI_URL" --period 3mo --output-dir outputs
+          elif [ -f "data/derivatives_bars_daily_options_225.csv.gz" ] && [ -f "data/indices_bars_daily_topix.csv.gz" ]; then
+            python work/fetch_market_data.py --options-csv data/derivatives_bars_daily_options_225.csv.gz --topix-csv data/indices_bars_daily_topix.csv.gz --period 3mo --output-dir outputs
+          elif [ -f "data/derivatives_bars_daily_options_225.csv" ] && [ -f "data/indices_bars_daily_topix.csv" ]; then
+            python work/fetch_market_data.py --options-csv data/derivatives_bars_daily_options_225.csv --topix-csv data/indices_bars_daily_topix.csv --period 3mo --output-dir outputs
           elif [ -f "data/options_oi.csv" ]; then
             python work/fetch_market_data.py --options-csv data/options_oi.csv --period 3mo --output-dir outputs
           else

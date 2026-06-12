@@ -48,6 +48,13 @@ python work/fetch_market_data.py --options-csv path/to/options_oi.csv --period 3
 
 GitHub Actionsでは、`data/options_oi.csv` が存在する場合に自動で実建玉CSVとして使用します。
 
+J-Quantsからダウンロードした生CSVを使う場合は、以下の名前で `data/` に置くと自動変換されます。
+
+```text
+data/derivatives_bars_daily_options_225.csv.gz
+data/indices_bars_daily_topix.csv.gz
+```
+
 HTTP(S)で取得できるCSVがある場合:
 
 ```bash
