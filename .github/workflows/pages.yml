@@ -39,6 +39,8 @@ jobs:
         run: |
           if [ -n "$OPTIONS_OI_URL" ]; then
             python work/fetch_market_data.py --options-url "$OPTIONS_OI_URL" --period 3mo --output-dir outputs
+          elif [ -f "data/options_oi.csv" ]; then
+            python work/fetch_market_data.py --options-csv data/options_oi.csv --period 3mo --output-dir outputs
           else
             python work/fetch_market_data.py --allow-proxy-options --period 3mo --output-dir outputs
           fi

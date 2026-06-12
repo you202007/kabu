@@ -46,6 +46,8 @@ python work/fetch_market_data.py --allow-proxy-options --period 3mo
 python work/fetch_market_data.py --options-csv path/to/options_oi.csv --period 3mo
 ```
 
+GitHub Actionsでは、`data/options_oi.csv` が存在する場合に自動で実建玉CSVとして使用します。
+
 HTTP(S)で取得できるCSVがある場合:
 
 ```bash
