@@ -386,18 +386,15 @@ def fetch_jquants_options(
     out_dir: Path,
     dates: pd.Series,
     *,
-    refresh_token: str | None = None,
+    api_key: str | None = None,
     mail_address: str | None = None,
     password: str | None = None,
 ) -> None:
     if JQuantsClient is None:
         raise RuntimeError("jquants-api-client is not installed.")
-    if refresh_token:
-        client = JQuantsClient(refresh_token=refresh_token)
-    elif mail_address and password:
-        client = JQuantsClient(mail_address=mail_address, password=password)
-    else:
-        raise RuntimeError("J-Quants credentials are required.")
+    if not api_key:
+        raise RuntimeError("J-Quants API key is required.")
+    client = JQuantsClient(api_key=api_key)
 
     frames = []
     for current in pd.to_datetime(dates).dt.strftime("%Y%m%d").drop_duplicates():
@@ -418,7 +415,8 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--options-csv", type=Path)
     parser.add_argument("--options-url", help="HTTP(S) URL for a real options_oi.csv file.")
     parser.add_argument("--topix-csv", type=Path, help="J-Quants indices_bars_daily_topix CSV or CSV.GZ.")
-    parser.add_argument("--jquants-refresh-token")
+    parser.add_argument("--jquants-api-key")
+    parser.add_argument("--jquants-refresh-token", help="Backward-compatible alias for --jquants-api-key.")
     parser.add_argument("--jquants-mail")
     parser.add_argument("--jquants-password")
     parser.add_argument(
@@ -443,13 +441,12 @@ def main() -> None:
     index_daily = fetch_index_daily(args.input_dir, constituents, args.period, args.topix_csv)
     sq_calendar = make_sq_calendar(args.input_dir, date.today())
 
-    if args.jquants_refresh_token or (args.jquants_mail and args.jquants_password):
+    jquants_api_key = args.jquants_api_key or args.jquants_refresh_token
+    if jquants_api_key:
         fetch_jquants_options(
             args.input_dir,
             index_daily["date"],
-            refresh_token=args.jquants_refresh_token,
-            mail_address=args.jquants_mail,
-            password=args.jquants_password,
+            api_key=jquants_api_key,
         )
         metadata["option_oi_source"] = "J-Quants /derivatives/bars/daily/options/225"
         metadata["option_oi_is_proxy"] = False

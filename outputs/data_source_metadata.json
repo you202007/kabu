@@ -2,6 +2,6 @@
   "price_source": "Yahoo Finance via yfinance",
   "constituent_mode": "tracked high-impact Nikkei 225 basket",
   "option_oi_source": "proxy generated from Nikkei level and ATR",
-  "generated_at": "2026-06-12T06:00:59.674896+00:00",
+  "generated_at": "2026-06-12T06:23:42.153305+00:00",
   "option_oi_is_proxy": true
 }

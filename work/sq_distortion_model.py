@@ -320,6 +320,94 @@ def write_dashboard(
             f"<td>{row['momentum'] * 100:+.2f}%</td></tr>"
         )
 
+    top5 = latest_ranked.head(5)[["ticker", "name"]].copy()
+    ranked_month = ranked.copy()
+    ranked_month["date"] = pd.to_datetime(ranked_month["date"])
+    month_start = latest["date"].replace(day=1)
+    ranked_month = ranked_month[
+        (ranked_month["date"] >= month_start)
+        & (ranked_month["date"] <= latest["date"])
+        & (ranked_month["ticker"].isin(top5["ticker"]))
+    ].sort_values(["ticker", "date"])
+    trend_svg = '<text x="40" y="80" fill="#637083" font-size="13">当月推移データなし</text>'
+    trend_rows = ""
+    if not ranked_month.empty:
+        colors = ["#c5323a", "#176f8f", "#5a6fdb", "#d98917", "#18785d"]
+        color_map = {ticker: colors[i % len(colors)] for i, ticker in enumerate(top5["ticker"])}
+        indexed_frames = []
+        for ticker, group in ranked_month.groupby("ticker", sort=False):
+            group = group.sort_values("date").copy()
+            base = group["close"].iloc[0]
+            group["indexed_close"] = np.where(base != 0, group["close"] / base * 100, 100)
+            indexed_frames.append(group)
+        indexed = pd.concat(indexed_frames, ignore_index=True)
+        y_min = min(95, indexed["indexed_close"].min())
+        y_max = max(105, indexed["indexed_close"].max())
+        if y_max == y_min:
+            y_max = y_min + 1
+        unique_dates = sorted(indexed["date"].drop_duplicates())
+        date_to_x = {
+            dt: 58 + i * (720 / max(len(unique_dates) - 1, 1))
+            for i, dt in enumerate(unique_dates)
+        }
+
+        def y_scale(v: float) -> float:
+            return 238 - (v - y_min) / (y_max - y_min) * 172
+
+        lines = []
+        markers = []
+        legend_items = []
+        trend_table_rows = []
+        for _, item in top5.iterrows():
+            ticker = item["ticker"]
+            name = item["name"]
+            group = indexed[indexed["ticker"] == ticker].sort_values("date")
+            if group.empty:
+                continue
+            points = " ".join(
+                f"{date_to_x[row['date']]:.1f},{y_scale(row['indexed_close']):.1f}"
+                for _, row in group.iterrows()
+            )
+            color = color_map[ticker]
+            lines.append(f'<polyline fill="none" stroke="{color}" stroke-width="2.6" points="{points}"/>')
+            last = group.iloc[-1]
+            markers.append(
+                f'<circle cx="{date_to_x[last["date"]]:.1f}" cy="{y_scale(last["indexed_close"]):.1f}" r="3.5" fill="{color}"/>'
+            )
+            legend_items.append(
+                f'<span><i class="dot" style="background:{color};"></i>{ticker} {name}</span>'
+            )
+            month_return = last["indexed_close"] - 100
+            klass = "pos" if month_return >= 0 else "neg"
+            trend_table_rows.append(
+                f'<tr><td>{ticker} {name}</td><td class="{klass}">{month_return:+.2f}%</td>'
+                f'<td>{last["close"]:,.0f}</td><td>{last["contribution_raw"]:+.1f}</td></tr>'
+            )
+        x_labels = ""
+        if unique_dates:
+            x_labels = (
+                f'<text x="58" y="266" fill="#637083" font-size="11">{unique_dates[0].strftime("%m-%d")}</text>'
+                f'<text x="720" y="266" fill="#637083" font-size="11">{unique_dates[-1].strftime("%m-%d")}</text>'
+            )
+        grid = (
+            '<g stroke="#d9e0ea"><line x1="48" y1="66" x2="808" y2="66"/>'
+            '<line x1="48" y1="109" x2="808" y2="109"/>'
+            '<line x1="48" y1="152" x2="808" y2="152"/>'
+            '<line x1="48" y1="195" x2="808" y2="195"/>'
+            '<line x1="48" y1="238" x2="808" y2="238"/></g>'
+        )
+        trend_svg = (
+            grid
+            + "".join(lines)
+            + "".join(markers)
+            + f'<text x="48" y="28" fill="#637083" font-size="11">月初=100 / range {y_min:.1f}-{y_max:.1f}</text>'
+            + x_labels
+        )
+        trend_rows = "".join(trend_table_rows)
+        trend_legend = "".join(legend_items)
+    else:
+        trend_legend = ""
+
     option_latest = options.copy()
     option_latest["date"] = pd.to_datetime(option_latest["date"])
     option_latest = option_latest[option_latest["date"] == latest["date"]].copy()
@@ -439,6 +527,15 @@ def write_dashboard(
       <section class="span-5">
         <h2>当日寄与度上位</h2>
         <table><thead><tr><th>銘柄</th><th>寄与</th><th>指数W</th><th>{cfg.momentum_days}日M</th></tr></thead><tbody>{''.join(rows)}</tbody></table>
+      </section>
+      <section class="span-12">
+        <h2>当日寄与度上位5銘柄 当月推移</h2>
+        <div class="legend">{trend_legend}</div>
+        <svg viewBox="0 0 860 288" role="img" aria-label="当日寄与度上位5銘柄の当月株価推移">
+          <rect width="860" height="288" fill="#fff"/>
+          {trend_svg}
+        </svg>
+        <table><thead><tr><th>銘柄</th><th>月初来</th><th>終値</th><th>当日寄与</th></tr></thead><tbody>{trend_rows}</tbody></table>
       </section>
       <section class="span-12">
         <h2>オプション建玉ストライク分布</h2>

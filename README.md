@@ -70,13 +70,13 @@ python work/fetch_market_data.py --options-url https://example.com/options_oi.cs
 
 注意: `--allow-proxy-options` はダッシュボード更新用の暫定値です。売買判断や勝率検証には、JPX/OSE由来の実建玉データを `options_oi.csv` として接続してください。
 
-J-Quantsのリフレッシュトークンがある場合:
+J-QuantsのAPIキーがある場合:
 
 ```bash
-python work/fetch_market_data.py --jquants-refresh-token <token> --period 3mo
+python work/fetch_market_data.py --jquants-api-key <api-key> --period 3mo
 ```
 
-GitHub Actionsでは、Repository Secretsに `JQUANTS_REFRESH_TOKEN` を設定すると、J-Quantsの日経225オプション四本値APIを優先して使用します。
+GitHub Actionsでは、Repository Secretsに `JQUANTS_API_KEY` を設定すると、J-Quantsの日経225オプション四本値APIを優先して使用します。既存の `JQUANTS_REFRESH_TOKEN` も互換的に読みます。
 
 日次更新はGitHub Actionsで平日20:00 JSTに実行されます。
 
