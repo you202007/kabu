@@ -1,0 +1,62 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>kabu — マクロ・フロー統合システム</title>
+<style>
+  :root{--bg:#0a0f1e;--panel:#111930;--panel2:#18213c;--line:#25304f;--text:#e7ecf7;--muted:#8290b2;--dim:#5b6688;
+    --blue:#5a86ff;--amber:#e3a93e;--purple:#a98cff;--green:#37c58d;
+    --mono:ui-monospace,"SFMono-Regular",Menlo,Consolas,monospace;--sans:-apple-system,"Hiragino Kaku Gothic ProN","Noto Sans JP",Meiryo,sans-serif;}
+  *{box-sizing:border-box}
+  body{margin:0;background:var(--bg);color:var(--text);font-family:var(--sans);line-height:1.55;-webkit-font-smoothing:antialiased;
+    background-image:radial-gradient(1100px 480px at 80% -12%,rgba(90,134,255,.12),transparent 60%);min-height:100vh}
+  .wrap{max-width:760px;margin:0 auto;padding:40px 18px 60px}
+  .kicker{font-family:var(--mono);font-size:11px;letter-spacing:.24em;color:var(--dim);text-transform:uppercase}
+  h1{font-size:26px;margin:8px 0 6px;font-weight:800;letter-spacing:.01em}
+  .lede{color:var(--muted);font-size:13.5px;max-width:60ch}
+  .layers{display:flex;gap:8px;margin:18px 0 30px;flex-wrap:wrap;font-family:var(--mono);font-size:11px}
+  .layers span{background:var(--panel2);border:1px solid var(--line);border-radius:20px;padding:5px 12px;color:var(--muted)}
+  .layers b{color:var(--text)}
+  .card{display:block;text-decoration:none;color:inherit;border:1px solid var(--line);border-radius:16px;padding:20px;margin-bottom:16px;
+    background:linear-gradient(180deg,var(--panel2),var(--panel));transition:all .15s;position:relative;overflow:hidden}
+  .card:hover{border-color:var(--ac);transform:translateY(-2px)}
+  .card::before{content:"";position:absolute;left:0;top:0;bottom:0;width:5px;background:var(--ac)}
+  .card .tag{font-family:var(--mono);font-size:10px;letter-spacing:.16em;color:var(--ac);text-transform:uppercase}
+  .card h2{font-size:19px;margin:6px 0 6px;font-weight:750}
+  .card p{color:var(--muted);font-size:13px;margin:0 0 12px}
+  .card .go{font-family:var(--mono);font-size:12px;color:var(--ac);font-weight:600}
+  .bridge{border:1px dashed var(--line);border-radius:12px;padding:14px 16px;margin:6px 0 24px;background:var(--panel);color:var(--muted);font-size:12.5px}
+  .bridge b{color:var(--text)}
+  .foot{margin-top:26px;font-size:11px;color:var(--dim);line-height:1.6;border-top:1px solid var(--line);padding-top:14px}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <div class="kicker">kabu · Macro–Flow Integrated System</div>
+  <h1>マクロ・フロー統合システム</h1>
+  <p class="lede">日本株・円・マクロを3つの時間軸で束ねる。構造（週次）でスタンスを決め、需給（SQ週）で執行を決め、カレンダー（フロー）で接近イベントを警戒する。</p>
+  <div class="layers"><span><b>第1層</b> レジーム（構造）</span><span><b>第2層</b> SQ需給</span><span><b>第3層</b> フロー警報</span></div>
+
+  <a class="card" href="./cockpit.html" style="--ac:var(--amber)">
+    <div class="tag">第1層 ＋ 第3層 ＋ SQ執行判定</div>
+    <h2>マクロ・フロー・コックピット</h2>
+    <p>9KPIでレジームを判定し、資産の傾きを出す。SQ戦術パネルは「レジーム×SQ」で執行モードが反転。第3層のフロー・イベント警報が、四半期末リバランス・配当再投資・指数リバランス・決算/自社株買いブラックアウトの接近を自動でアラート。</p>
+    <div class="go">▶ 判断レイヤーを開く</div>
+  </a>
+
+  <a class="card" href="./sq.html" style="--ac:var(--purple)">
+    <div class="tag">第2層 ／ データ・ドリブン</div>
+    <h2>日経225 SQ歪みダッシュボード</h2>
+    <p>yfinance＋J-Quantsの実データで、寄与度トレンド・オプション建玉・Max Pain・先物ベーシス・指数歪みを定量化。上方向圧力／下方向剥落リスク、推定勝率、寄与度上位銘柄を可視化する。</p>
+    <div class="go">▶ データレイヤーを開く</div>
+  </a>
+
+  <div class="bridge">
+    <b>二枚の使い方：</b>SQダッシュボード（第2層）で読んだ実数値——D-1出来高の異常度、Max Painとの位置、Pinning状態——を、コックピットのSQ戦術パネルに入力する。すると<b>第1層のレジームがその信号の"読み方"を上から書き換える</b>（同じ下方向優位でも、リスクオンなら収束取り、抑圧・危機ならブレイク追随／見送りに反転）。データは下から、判断は上から。
+  </div>
+
+  <div class="foot">※本システムは自分の観測を整理するための判断補助であり、投資助言・売買指示ではありません。数値・傾き・リード期間はすべて目安です。</div>
+</div>
+</body>
+</html>

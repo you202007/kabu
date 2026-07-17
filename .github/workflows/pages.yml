@@ -56,9 +56,8 @@ jobs:
           else
             python work/fetch_market_data.py --allow-proxy-options --period 3mo --output-dir outputs
           fi
-          cp outputs/sq_distortion_dashboard_generated.html outputs/index.html
-          mkdir -p outputs/cockpit
-          cp cockpit/*.html outputs/cockpit/
+          cp outputs/sq_distortion_dashboard_generated.html outputs/sq.html
+          cp index.html cockpit.html outputs/
 
       - name: Setup Pages
         uses: actions/configure-pages@v5
