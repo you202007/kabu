@@ -1,0 +1,291 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>週次レジーム判定盤</title>
+<style>
+  :root{
+    --bg:#0a0f1e; --panel:#111930; --panel2:#18213c; --line:#25304f;
+    --text:#e7ecf7; --muted:#8290b2; --dim:#5b6688;
+    --green:#37c58d; --amber:#e3a93e; --red:#e15a5a; --blue:#5a86ff; --gold:#d4b063;
+    --mono:ui-monospace,"SFMono-Regular",Menlo,Consolas,monospace;
+    --sans:-apple-system,"Hiragino Kaku Gothic ProN","Noto Sans JP",Meiryo,sans-serif;
+  }
+  *{box-sizing:border-box}
+  body{margin:0;background:var(--bg);color:var(--text);font-family:var(--sans);
+    -webkit-font-smoothing:antialiased;line-height:1.5;
+    background-image:radial-gradient(1200px 500px at 80% -10%,rgba(90,134,255,.10),transparent 60%);}
+  .wrap{max-width:760px;margin:0 auto;padding:20px 16px 60px}
+  header{border-bottom:1px solid var(--line);padding-bottom:14px;margin-bottom:16px}
+  .kicker{font-family:var(--mono);font-size:11px;letter-spacing:.22em;color:var(--dim);text-transform:uppercase}
+  h1{font-size:22px;margin:6px 0 2px;font-weight:750;letter-spacing:.01em}
+  .sub{color:var(--muted);font-size:12.5px}
+  .daterow{display:flex;align-items:center;gap:8px;margin-top:12px;flex-wrap:wrap}
+  .daterow label{font-size:11px;color:var(--dim);font-family:var(--mono);letter-spacing:.1em}
+  input[type=date]{background:var(--panel2);border:1px solid var(--line);color:var(--text);
+    border-radius:8px;padding:6px 9px;font-family:var(--mono);font-size:13px}
+
+  /* verdict */
+  .verdict{border:1px solid var(--line);border-radius:14px;padding:16px 16px 14px;margin:4px 0 20px;
+    background:linear-gradient(180deg,var(--panel2),var(--panel));position:relative;overflow:hidden}
+  .verdict::before{content:"";position:absolute;left:0;top:0;bottom:0;width:5px;background:var(--vc,var(--muted))}
+  .vlabel{font-family:var(--mono);font-size:10.5px;letter-spacing:.2em;color:var(--dim);text-transform:uppercase}
+  .vname{font-size:26px;font-weight:800;margin:3px 0 4px;color:var(--vc,var(--text));letter-spacing:.01em}
+  .vdesc{font-size:13px;color:var(--muted)}
+  .vmeter{display:flex;gap:6px;margin-top:12px;font-family:var(--mono);font-size:11px;color:var(--dim);flex-wrap:wrap}
+  .vmeter b{color:var(--text);font-weight:600}
+
+  h2{font-size:12px;font-family:var(--mono);letter-spacing:.16em;color:var(--dim);
+    text-transform:uppercase;margin:26px 0 12px;padding-bottom:6px;border-bottom:1px solid var(--line)}
+
+  .kpi{margin-bottom:14px}
+  .kpi .q{font-size:13.5px;font-weight:650;margin-bottom:7px}
+  .opts{display:grid;gap:6px}
+  .opt{display:block;width:100%;text-align:left;cursor:pointer;background:var(--panel);
+    border:1px solid var(--line);color:var(--muted);border-radius:9px;padding:9px 11px;
+    font-size:12.5px;font-family:var(--sans);transition:all .12s;line-height:1.35}
+  .opt:hover{border-color:#324063}
+  .opt.on{color:var(--text);background:var(--panel2);border-color:var(--sel,var(--blue));
+    box-shadow:inset 3px 0 0 var(--sel,var(--blue))}
+  .opt .tag{font-family:var(--mono);font-size:10px;letter-spacing:.08em;opacity:.7;margin-right:7px}
+
+  /* tilt table */
+  table{width:100%;border-collapse:collapse;font-size:13px}
+  th,td{text-align:left;padding:9px 8px;border-bottom:1px solid var(--line)}
+  th{font-family:var(--mono);font-size:10px;letter-spacing:.12em;color:var(--dim);text-transform:uppercase;font-weight:600}
+  td.asset{color:var(--text);font-weight:600}
+  .pill{display:inline-block;font-family:var(--mono);font-size:11px;font-weight:600;
+    padding:3px 9px;border-radius:20px;letter-spacing:.03em;border:1px solid transparent}
+  .p-core{color:#04140d;background:var(--green)}
+  .p-hold{color:var(--green);border-color:rgba(55,197,141,.4);background:rgba(55,197,141,.08)}
+  .p-thin{color:var(--amber);border-color:rgba(227,169,62,.4);background:rgba(227,169,62,.08)}
+  .p-neu{color:var(--muted);border-color:var(--line);background:var(--panel2)}
+  .p-avoid{color:var(--red);border-color:rgba(225,90,90,.4);background:rgba(225,90,90,.08)}
+  .p-max{color:#04140d;background:var(--gold)}
+  .tnote{color:var(--muted);font-size:12.5px;margin-top:12px;padding:11px 12px;
+    background:var(--panel);border:1px solid var(--line);border-left:3px solid var(--vc,var(--muted));border-radius:9px}
+
+  ul.watch{list-style:none;padding:0;margin:0}
+  ul.watch li{font-size:12.5px;color:var(--muted);padding:8px 0 8px 18px;position:relative;border-bottom:1px dashed var(--line)}
+  ul.watch li:last-child{border-bottom:none}
+  ul.watch li::before{content:"▸";position:absolute;left:0;color:var(--blue)}
+  ul.watch b{color:var(--text);font-weight:600}
+
+  .saverow{display:flex;gap:10px;align-items:center;margin-top:14px;flex-wrap:wrap}
+  button.act{background:var(--blue);color:#fff;border:none;border-radius:9px;padding:10px 16px;
+    font-size:13px;font-weight:650;cursor:pointer;font-family:var(--sans)}
+  button.act:active{transform:translateY(1px)}
+  .hist{display:flex;gap:7px;flex-wrap:wrap;margin-top:12px}
+  .chip{font-family:var(--mono);font-size:11px;padding:5px 9px;border-radius:7px;background:var(--panel2);
+    border:1px solid var(--line);color:var(--muted);display:flex;gap:7px;align-items:center}
+  .chip i{width:7px;height:7px;border-radius:50%;display:inline-block}
+  .chip .x{cursor:pointer;color:var(--dim);margin-left:2px}
+  .msg{font-size:11.5px;color:var(--dim);font-family:var(--mono);margin-top:8px}
+  .foot{margin-top:30px;font-size:11px;color:var(--dim);line-height:1.6;border-top:1px solid var(--line);padding-top:14px}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <header>
+    <div class="kicker">Weekly Macro Regime Board · 週末基点</div>
+    <h1>週次レジーム判定盤</h1>
+    <div class="sub">9つのKPIを週末に読み、いまのレジームと相対的に有利な傾きを判定する。傾きは判断補助であり、売買指示ではない。</div>
+    <div class="daterow">
+      <label>週末基点</label>
+      <input type="date" id="dt">
+    </div>
+  </header>
+
+  <div class="verdict" id="verdict">
+    <div class="vlabel">現在のレジーム</div>
+    <div class="vname" id="vname">—</div>
+    <div class="vdesc" id="vdesc"></div>
+    <div class="vmeter" id="vmeter"></div>
+  </div>
+
+  <h2>Ⅰ. KPI 入力（週末の観測）</h2>
+  <div id="kpis"></div>
+
+  <h2>Ⅱ. 相対的に有利な傾き</h2>
+  <table id="tilt">
+    <thead><tr><th>資産</th><th>傾き</th></tr></thead>
+    <tbody id="tiltbody"></tbody>
+  </table>
+  <div class="tnote" id="tnote"></div>
+
+  <h2>Ⅲ. 分岐を裁くトリガー（毎週見る）</h2>
+  <ul class="watch">
+    <li><b>株安の日に円が買われ始めたら</b> — 抑圧解除 or 危機接近の分岐。円ショートの一部利確を検討。</li>
+    <li><b>米実質金利（10y TIPS）が下向きに転換</b> — 金の号砲。debasement仮説と同期。</li>
+    <li><b>資金ストレス（VIX/クレジット/ドル調達ベーシス）が噴出</b> — 危機レジームへ。円ショートをトリム。</li>
+    <li><b>BOJ会合・次の国債入札の質</b> — 財政天井とBOJ独立の分岐。跨ぐなら事前に軽く。</li>
+    <li><b>ハイスケ決算の capex ガイダンス</b> — AI複合体・半導体（KIOXIA）の戻り可否の最初の判定点。</li>
+  </ul>
+
+  <h2>Ⅳ. 週次記録</h2>
+  <div class="saverow">
+    <button class="act" id="save">この週を記録</button>
+    <span class="msg" id="msg"></span>
+  </div>
+  <div class="hist" id="hist"></div>
+
+  <div class="foot">
+    使い方：毎週末、Ⅰの9項目を金曜終値ベースで選ぶ → Ⅱの傾きとⅢのトリガーを確認 → 「この週を記録」で履歴に残す。レジームの遷移（例：抑圧→危機）を週次で追うことが目的。<br>
+    ※本ツールは自分の観測を整理する判断補助。数値・傾きは投資助言ではない。
+  </div>
+</div>
+
+<script>
+const KPIS=[
+ {id:'yen',q:'① 円の避難挙動（マスター判定）',opts:[
+   {v:'normal',tag:'避難◯',t:'株安の日に円が買われた（通常サイクル）'},
+   {v:'repress',tag:'抑圧',t:'株安でも円は動かず／売られた（抑圧レジーム）'},
+   {v:'spike',tag:'巻戻し',t:'急激な円高スパイク（キャリー巻き戻し）'}],def:'repress'},
+ {id:'usdjpy',q:'② USD/JPY 水準',opts:[
+   {v:'up',tag:'上抜け',t:'163超（円安ブレイク進行）'},
+   {v:'pin',tag:'ピン',t:'159–163（当局にピン留めされたレンジ）'},
+   {v:'down',tag:'接近',t:'159未満（円高・ストップ接近）'}],def:'pin'},
+ {id:'real',q:'③ 米実質金利（10y TIPS）方向',opts:[
+   {v:'up',tag:'上昇',t:'上昇（リスク逆風・金の逆風）'},
+   {v:'flat',tag:'横ばい',t:'横ばい'},
+   {v:'down',tag:'低下',t:'低下（ピボット＝金の号砲）'}],def:'up'},
+ {id:'fed',q:'④ Fed 利上げ観測',opts:[
+   {v:'hawk',tag:'タカ',t:'タカ派強（利上げ織り込み↑）'},
+   {v:'neutral',tag:'中立',t:'中立'},
+   {v:'dove',tag:'ハト',t:'ハト転（利下げ観測）'}],def:'hawk'},
+ {id:'jgb',q:'⑤ JGB長期金利 vs 3%天井',opts:[
+   {v:'up',tag:'接近',t:'3%へ接近／入札不調（抑圧強）'},
+   {v:'flat',tag:'安定',t:'安定'},
+   {v:'down',tag:'低下',t:'低下'}],def:'up'},
+ {id:'oil',q:'⑥ 原油・地政学（加速材）',opts:[
+   {v:'bad',tag:'緊迫',t:'原油高／ホルムズ緊迫（悪い象限）'},
+   {v:'calm',tag:'小康',t:'小康'},
+   {v:'good',tag:'追風',t:'原油下落（日本に追い風）'}],def:'bad'},
+ {id:'ai',q:'⑦ AI複合体・capex',opts:[
+   {v:'top',tag:'頭打ち',t:'capex頭打ち／半導体軟調（KIOXIA回避継続）'},
+   {v:'mid',tag:'中立',t:'中立'},
+   {v:'strong',tag:'再点火',t:'capex強・AI再点火（半導体を拾える）'}],def:'top'},
+ {id:'stress',q:'⑧ 資金ストレス（テール警報）',opts:[
+   {v:'calm',tag:'静穏',t:'静穏（VIX低・スプレッド安定）'},
+   {v:'warn',tag:'警戒',t:'警戒（じり上げ）'},
+   {v:'blow',tag:'噴出',t:'急拡大（VIX/クレジット/ベーシス噴出＝デレバレッジ）'}],def:'warn'},
+ {id:'liq',q:'⑨ 流動性・供給',opts:[
+   {v:'contract',tag:'収縮',t:'収縮／メガIPOが吸い上げ'},
+   {v:'neutral',tag:'中立',t:'中立'},
+   {v:'expand',tag:'拡大',t:'拡大'}],def:'contract'}
+];
+
+const REGIME={
+  crisis:{name:'危機 / デレバレッジ',color:'var(--red)',
+    desc:'資金ストレス噴出、またはキャリー巻き戻しの円高スパイク。守り最優先。',
+    note:'守りの局面。円ショートはスパイクで轢かれる側なのでトリム。次の号砲（ストレス沈静）まで動かない。',
+    tilt:{'円ショート（USD/JPYロング）':'thin|トリム','現金・短期債':'max|最大','金（ゴールド）':'neu|中立','日本株β（日経）':'avoid|回避','半導体（KIOXIA等）':'avoid|回避','米株':'avoid|回避','BTC':'avoid|回避'}},
+  repress:{name:'抑圧・スタグ寄り',color:'var(--amber)',
+    desc:'金利は天井で抑えられ、しわ寄せは通貨とインフレへ。実物と通貨で持つ局面。',
+    note:'通貨（円ショート）と実物（金）で持つ。高βの半導体は避ける。いまの君の建て方（円ショート＋株フラット）と一致。',
+    tilt:{'円ショート（USD/JPYロング）':'core|主軸','現金・短期債':'hold|厚め','金（ゴールド）':'hold|妙味','日本株β（日経）':'thin|薄め','半導体（KIOXIA等）':'avoid|回避','米株':'thin|中立〜薄','BTC':'neu|中立'}},
+  riskon:{name:'リスクオン / 再点火',color:'var(--green)',
+    desc:'capex強・実質金利低下・ストレス静穏。リスクを取れる局面。',
+    note:'リスクを取れる局面。半導体は押し目を拾える。円ショートは金利差（good-yen）で継続可、ただし過度な円安は当局が抑える点に留意。',
+    tilt:{'円ショート（USD/JPYロング）':'hold|継続可','現金・短期債':'thin|薄め','金（ゴールド）':'neu|中立','日本株β（日経）':'core|増やせる','半導体（KIOXIA等）':'hold|押し目検討','米株':'hold|◯','BTC':'hold|順張り可'}},
+  neutral:{name:'中立 / 様子見',color:'var(--blue)',
+    desc:'シグナルが割れている。カタリスト待ちで、張らないことが最強。',
+    note:'方向が割れている。全部小さく、円ショートは小サイズ継続、現金厚め。BOJ会合など次のカタリストで霧が晴れるのを待つ。',
+    tilt:{'円ショート（USD/JPYロング）':'hold|小サイズ','現金・短期債':'hold|厚め','金（ゴールド）':'neu|小','日本株β（日経）':'neu|様子見','半導体（KIOXIA等）':'avoid|見送り','米株':'neu|小','BTC':'neu|小'}}
+};
+const PILL={core:'p-core',max:'p-max',hold:'p-hold',thin:'p-thin',neu:'p-neu',avoid:'p-avoid'};
+
+const state={};
+KPIS.forEach(k=>state[k.id]=k.def);
+
+function classify(s){
+  if(s.yen==='spike'||s.stress==='blow')return 'crisis';
+  let rep=0,ron=0;
+  if(s.yen==='repress')rep++; if(s.jgb==='up')rep++; if(s.oil==='bad')rep++;
+  if(s.real==='up')rep++; if(s.liq==='contract')rep++; if(s.usdjpy==='up')rep++;
+  if(s.ai==='strong')ron++; if(s.real==='down')ron++; if(s.stress==='calm')ron++;
+  if(s.yen==='normal')ron++; if(s.fed==='dove')ron++; if(s.liq==='expand')ron++; if(s.oil==='good')ron++;
+  if(ron>=3&&rep<=1)return 'riskon';
+  if(rep>=3&&ron<=1)return 'repress';
+  return 'neutral';
+}
+
+function renderKPIs(){
+  const box=document.getElementById('kpis');box.innerHTML='';
+  KPIS.forEach(k=>{
+    const d=document.createElement('div');d.className='kpi';
+    const q=document.createElement('div');q.className='q';q.textContent=k.q;d.appendChild(q);
+    const o=document.createElement('div');o.className='opts';
+    k.opts.forEach(op=>{
+      const b=document.createElement('button');b.className='opt'+(state[k.id]===op.v?' on':'');
+      b.innerHTML='<span class="tag">'+op.tag+'</span>'+op.t;
+      b.onclick=()=>{state[k.id]=op.v;renderKPIs();renderVerdict();};
+      o.appendChild(b);
+    });
+    d.appendChild(o);box.appendChild(d);
+  });
+}
+
+function renderVerdict(){
+  const r=classify(state),R=REGIME[r];
+  document.getElementById('verdict').style.setProperty('--vc',R.color);
+  document.getElementById('vname').textContent=R.name;
+  document.getElementById('vdesc').textContent=R.desc;
+  // meter
+  let rep=0,ron=0;const s=state;
+  if(s.yen==='repress')rep++;if(s.jgb==='up')rep++;if(s.oil==='bad')rep++;if(s.real==='up')rep++;if(s.liq==='contract')rep++;if(s.usdjpy==='up')rep++;
+  if(s.ai==='strong')ron++;if(s.real==='down')ron++;if(s.stress==='calm')ron++;if(s.yen==='normal')ron++;if(s.fed==='dove')ron++;if(s.liq==='expand')ron++;if(s.oil==='good')ron++;
+  document.getElementById('vmeter').innerHTML=
+    '抑圧スコア <b>'+rep+'</b> · リスクオンスコア <b>'+ron+'</b>'+
+    (r==='crisis'?' · <b style="color:var(--red)">危機フラグ点灯</b>':'');
+  // tilt
+  const tb=document.getElementById('tiltbody');tb.innerHTML='';
+  Object.entries(R.tilt).forEach(([a,val])=>{
+    const [cls,lab]=val.split('|');
+    const tr=document.createElement('tr');
+    tr.innerHTML='<td class="asset">'+a+'</td><td><span class="pill '+PILL[cls]+'">'+lab+'</span></td>';
+    tb.appendChild(tr);
+  });
+  const tn=document.getElementById('tnote');tn.style.setProperty('--vc',R.color);tn.textContent=R.note;
+}
+
+/* ---- weekly history via persistent storage ---- */
+function fmt(d){return d;}
+async function loadHist(){
+  const h=document.getElementById('hist');h.innerHTML='';
+  try{
+    const res=await window.storage.list('week:');
+    if(!res||!res.keys||!res.keys.length){h.innerHTML='<span class="msg">記録なし。週末に「この週を記録」で残せる。</span>';return;}
+    const keys=res.keys.sort().reverse().slice(0,12);
+    for(const key of keys){
+      let rec=null;
+      try{const g=await window.storage.get(key);rec=g?JSON.parse(g.value):null;}catch(e){continue;}
+      if(!rec)continue;
+      const R=REGIME[rec.regime]||REGIME.neutral;
+      const chip=document.createElement('span');chip.className='chip';
+      chip.innerHTML='<i style="background:'+R.color+'"></i>'+rec.date+' · '+R.name.split(' ')[0]+
+        ' <span class="x" title="削除">✕</span>';
+      chip.querySelector('.x').onclick=async()=>{try{const g=await window.storage.get(key);if(g)await window.storage.delete(key);loadHist();}catch(e){}};
+      h.appendChild(chip);
+    }
+  }catch(e){h.innerHTML='<span class="msg">この環境では履歴保存は使えません（判定は通常どおり動作）。</span>';}
+}
+async function saveWeek(){
+  const date=document.getElementById('dt').value||new Date().toISOString().slice(0,10);
+  const regime=classify(state);
+  const rec={date,regime,readings:{...state}};
+  const msg=document.getElementById('msg');
+  try{
+    const r=await window.storage.set('week:'+date,JSON.stringify(rec));
+    msg.textContent=r?('記録した（'+date+'）'):'保存に失敗した。もう一度試して。';
+    loadHist();
+  }catch(e){msg.textContent='この環境では保存できないが、判定は使える。';}
+}
+
+document.getElementById('dt').value=new Date().toISOString().slice(0,10);
+document.getElementById('save').onclick=saveWeek;
+renderKPIs();renderVerdict();loadHist();
+</script>
+</body>
+</html>
