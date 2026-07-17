@@ -101,7 +101,18 @@ def business_day_distance(dates: pd.Series, sq_dates: Iterable[pd.Timestamp]) ->
         past = [d for d in sq_dates if d < current]
         next_sq = future[0] if future else sq_dates[-1]
         previous_sq = past[-1] if past else pd.NaT
-        days_to_sq = sum(1 for d in known if current < d <= next_sq)
+        if next_sq > current:
+            # Count business days in (current, next_sq]. The in-sample `known` dates
+            # only cover history (<= latest), so a "known"-based count is always 0 for
+            # the latest row. Use a calendar count so time_pressure is correct.
+            days_to_sq = int(
+                np.busday_count(
+                    (current + pd.Timedelta(days=1)).date(),
+                    (next_sq + pd.Timedelta(days=1)).date(),
+                )
+            )
+        else:
+            days_to_sq = 0
         days_after_sq = sum(1 for d in known if pd.notna(previous_sq) and previous_sq < d <= current)
         rows.append(
             {
@@ -236,6 +247,33 @@ def compute_scores(
     ]
     daily[fill_zero] = daily[fill_zero].fillna(0)
 
+    # --- data-quality guard ---------------------------------------------------
+    # A partially-missing raw input (e.g. current index price or futures basis
+    # failed to fetch) otherwise cascades into NaN composite scores and the
+    # dashboard publishes "nan%". Record which critical inputs are missing on the
+    # latest (displayed) row *before* filling, then substitute neutral values so
+    # scores stay finite. The missing list surfaces as a warning banner.
+    critical_inputs = {
+        "nikkei_close": "現在値",
+        "basis_atr": "先物ベーシス",
+        "nikkei_topix_gap": "TOPIX乖離",
+        "advancers_ratio": "騰落比率",
+    }
+    _missing = [
+        jp
+        for col, jp in critical_inputs.items()
+        if col not in daily.columns or pd.isna(daily.iloc[-1].get(col, np.nan))
+    ]
+    if "nikkei_close" in daily.columns:
+        daily["nikkei_close"] = daily["nikkei_close"].ffill()
+    if "advancers_ratio" in daily.columns:
+        daily["advancers_ratio"] = daily["advancers_ratio"].fillna(0.5)
+    for _col in ("basis_atr", "nikkei_topix_gap", "nikkei_return"):
+        if _col in daily.columns:
+            daily[_col] = daily[_col].fillna(0)
+    daily["data_degraded_inputs"] = ", ".join(_missing)
+    # --------------------------------------------------------------------------
+
     daily["time_pressure"] = np.maximum(0, 1 - daily["days_to_sq"] / cfg.sq_window_days)
     daily["post_sq_flag"] = np.where(
         daily["days_after_sq"].between(1, cfg.post_sq_days, inclusive="both"),
@@ -287,6 +325,8 @@ def write_dashboard(
     history = scores.tail(16).copy()
 
     def pct(value: float) -> str:
+        if pd.isna(value):
+            return "-"
         return f"{value * 100:.0f}%"
 
     def fmt(value: float, digits: int = 2) -> str:
@@ -467,6 +507,14 @@ def write_dashboard(
                 source_notice += " / 注意: オプション建玉は暫定プロキシ"
         except json.JSONDecodeError:
             source_notice = ""
+
+    degraded = str(latest.get("data_degraded_inputs", "") or "").strip()
+    if degraded:
+        warn = (
+            f"⚠ データ取得が不完全です（欠損: {degraded}）。"
+            "該当指標は中立値で代替した参考値です。売買判断には使わないでください。"
+        )
+        source_notice = f"{source_notice} / {warn}" if source_notice else warn
 
     html = f"""<!doctype html>
 <html lang="ja">
