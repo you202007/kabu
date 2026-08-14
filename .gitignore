@@ -5,3 +5,7 @@ __pycache__/
 venv/
 .DS_Store
 work/input_data/
+.env
+.env.*
+!.env.example
+jquants-api.toml

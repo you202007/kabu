@@ -16,6 +16,7 @@ from __future__ import annotations
 import argparse
 import json
 import math
+import os
 import shutil
 from datetime import date, timedelta
 from pathlib import Path
@@ -27,10 +28,8 @@ import yfinance as yf
 from sq_distortion_model import ModelConfig, run_pipeline
 
 try:
-    import jquantsapi
     from jquantsapi.client_v2 import ClientV2 as JQuantsClient
 except ImportError:  # pragma: no cover - optional dependency path
-    jquantsapi = None
     JQuantsClient = None
 
 
@@ -387,24 +386,31 @@ def fetch_jquants_options(
     dates: pd.Series,
     *,
     api_key: str | None = None,
-    mail_address: str | None = None,
-    password: str | None = None,
 ) -> None:
     if JQuantsClient is None:
         raise RuntimeError("jquants-api-client is not installed.")
     if not api_key:
         raise RuntimeError("J-Quants API key is required.")
     client = JQuantsClient(api_key=api_key)
+    requested_dates = pd.to_datetime(dates, errors="coerce").dropna()
+    if requested_dates.empty:
+        raise RuntimeError("No valid dates were available for the J-Quants request.")
 
-    frames = []
-    for current in pd.to_datetime(dates).dt.strftime("%Y%m%d").drop_duplicates():
-        raw = client.get_drv_bars_daily_opt_225(current)
-        if not raw.empty:
-            frames.append(normalize_jquants_options(raw))
-    if not frames:
+    raw = client.get_drv_bars_daily_opt_225_range(
+        start_dt=requested_dates.min().strftime("%Y%m%d"),
+        end_dt=requested_dates.max().strftime("%Y%m%d"),
+    )
+    if raw.empty:
         raise RuntimeError("J-Quants returned no Nikkei 225 option data for the requested dates.")
-    options = pd.concat(frames, ignore_index=True)
+    options = normalize_jquants_options(raw)
+    if options.empty:
+        raise RuntimeError("J-Quants option data could not be normalized.")
     options.to_csv(out_dir / "options_oi.csv", index=False, encoding="utf-8")
+
+
+def resolve_jquants_api_key(cli_value: str | None) -> str | None:
+    """Prefer an explicit CLI value, otherwise use the standard V2 environment variable."""
+    return cli_value or os.environ.get("JQUANTS_API_KEY")
 
 
 def parse_args() -> argparse.Namespace:
@@ -415,10 +421,10 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--options-csv", type=Path)
     parser.add_argument("--options-url", help="HTTP(S) URL for a real options_oi.csv file.")
     parser.add_argument("--topix-csv", type=Path, help="J-Quants indices_bars_daily_topix CSV or CSV.GZ.")
-    parser.add_argument("--jquants-api-key")
-    parser.add_argument("--jquants-refresh-token", help="Backward-compatible alias for --jquants-api-key.")
-    parser.add_argument("--jquants-mail")
-    parser.add_argument("--jquants-password")
+    parser.add_argument(
+        "--jquants-api-key",
+        help="J-Quants V2 API key. Prefer the JQUANTS_API_KEY environment variable.",
+    )
     parser.add_argument(
         "--allow-proxy-options",
         action="store_true",
@@ -430,6 +436,11 @@ def parse_args() -> argparse.Namespace:
 def main() -> None:
     args = parse_args()
     args.input_dir.mkdir(parents=True, exist_ok=True)
+    # yfinance uses SQLite-backed caches. Keeping the cache under the writable
+    # input directory avoids failures in restricted runners and containers.
+    yf_cache_dir = args.input_dir / ".yfinance-cache"
+    yf_cache_dir.mkdir(parents=True, exist_ok=True)
+    yf.set_tz_cache_location(str(yf_cache_dir))
     metadata = {
         "price_source": "Yahoo Finance via yfinance",
         "constituent_mode": "tracked high-impact Nikkei 225 basket",
@@ -441,7 +452,7 @@ def main() -> None:
     index_daily = fetch_index_daily(args.input_dir, constituents, args.period, args.topix_csv)
     sq_calendar = make_sq_calendar(args.input_dir, date.today())
 
-    jquants_api_key = args.jquants_api_key or args.jquants_refresh_token
+    jquants_api_key = resolve_jquants_api_key(args.jquants_api_key)
     if jquants_api_key:
         fetch_jquants_options(
             args.input_dir,

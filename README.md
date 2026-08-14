@@ -103,10 +103,18 @@ python work/fetch_market_data.py --options-url https://example.com/options_oi.cs
 J-QuantsのAPIキーがある場合:
 
 ```bash
-python work/fetch_market_data.py --jquants-api-key <api-key> --period 3mo
+read -rsp "J-Quants API key: " JQUANTS_API_KEY
+export JQUANTS_API_KEY
+python work/fetch_market_data.py --period 3mo
+unset JQUANTS_API_KEY
 ```
 
-GitHub Actionsでは、Repository Secretsに `JQUANTS_API_KEY` を設定すると、J-Quantsの日経225オプション四本値APIを優先して使用します。既存の `JQUANTS_REFRESH_TOKEN` も互換的に読みます。
+API キーはソースコード、`.env.example`、コマンドライン引数には保存しないでください。
+GitHub Actions では Repository Secrets に `JQUANTS_API_KEY` という名前で登録します。
+キーが設定されている場合、J-Quants の取得に失敗するとワークフローも失敗し、古いデータを
+「更新成功」として再配信しません。キー未設定時だけ、明示的なプロキシデータへフォールバックします。
+
+GitHub Actionsでは、Repository Secretsに `JQUANTS_API_KEY` を設定すると、J-Quantsの日経225オプション四本値APIを優先して使用します。このAPIにはJ-Quants Standard以上のプランが必要です。
 
 日次更新はGitHub Actionsで平日20:00 JSTに実行されます。
 
