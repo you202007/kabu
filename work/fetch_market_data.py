@@ -33,6 +33,8 @@ except ImportError:  # pragma: no cover - optional dependency path
     JQuantsClient = None
 
 
+JQUANTS_OPTIONS_LOOKBACK_DAYS = 90
+
 TRACKED_COMPONENTS = [
     {"ticker": "285A", "yf": "285A.T", "name": "キオクシア", "adj_factor": 0.82},
     {"ticker": "5803", "yf": "5803.T", "name": "フジクラ", "adj_factor": 0.70},
@@ -462,9 +464,16 @@ def main() -> None:
 
     jquants_api_key = resolve_jquants_api_key(args.jquants_api_key)
     if jquants_api_key:
+        # The rolling z-score (sq_distortion_model.py) needs ~2y of *price* history,
+        # but get_drv_bars_daily_opt_225_range paginates over the whole date range —
+        # requesting 2y of options history (vs. the old 3mo) triggers J-Quants 429
+        # rate limiting. Options history doesn't need to grow with the price window,
+        # so cap it independently.
+        option_cutoff = pd.Timestamp.now().normalize() - pd.Timedelta(days=JQUANTS_OPTIONS_LOOKBACK_DAYS)
+        option_dates = index_daily.loc[pd.to_datetime(index_daily["date"]) >= option_cutoff, "date"]
         fetch_jquants_options(
             args.input_dir,
-            index_daily["date"],
+            option_dates,
             api_key=jquants_api_key,
         )
         metadata["option_oi_source"] = "J-Quants /derivatives/bars/daily/options/225"
