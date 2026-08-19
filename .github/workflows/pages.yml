@@ -36,15 +36,16 @@ jobs:
       - name: Install dependencies
         run: pip install -r requirements.txt
 
-      - name: Generate dashboard
+      - name: Run tests
+        run: python -m unittest discover -s tests -v
+
+      - name: Fetch market data and regenerate SQ dashboard
         env:
           OPTIONS_OI_URL: ${{ secrets.OPTIONS_OI_URL }}
           JQUANTS_API_KEY: ${{ secrets.JQUANTS_API_KEY }}
-          JQUANTS_REFRESH_TOKEN: ${{ secrets.JQUANTS_REFRESH_TOKEN }}
         run: |
-          JQUANTS_KEY="${JQUANTS_API_KEY:-$JQUANTS_REFRESH_TOKEN}"
-          if [ -n "$JQUANTS_KEY" ]; then
-            python work/fetch_market_data.py --jquants-api-key "$JQUANTS_KEY" --period 2y --output-dir outputs || python work/fetch_market_data.py --allow-proxy-options --period 2y --output-dir outputs
+          if [ -n "$JQUANTS_API_KEY" ]; then
+            python work/fetch_market_data.py --period 2y --output-dir outputs
           elif [ -n "$OPTIONS_OI_URL" ]; then
             python work/fetch_market_data.py --options-url "$OPTIONS_OI_URL" --period 2y --output-dir outputs
           elif [ -n "$(find data -maxdepth 1 -type f \( -name 'derivatives_bars_daily_options_225*.csv.gz' -o -name 'derivatives_bars_daily_options_225*.csv' \) | head -n 1)" ] && [ -n "$(find data -maxdepth 1 -type f \( -name 'indices_bars_daily_topix*.csv.gz' -o -name 'indices_bars_daily_topix*.csv' \) | head -n 1)" ]; then
@@ -56,8 +57,20 @@ jobs:
           else
             python work/fetch_market_data.py --allow-proxy-options --period 2y --output-dir outputs
           fi
-          cp outputs/sq_distortion_dashboard_generated.html outputs/sq.html
-          cp index.html cockpit.html outputs/
+
+      - name: Publish static pages
+        run: |
+          mkdir -p outputs
+          # index.html / cockpit.html are the landing + cockpit pages tracked at repo root.
+          # Always (re)copy them last so a partial or failed data-fetch step above can
+          # never leave a stale/overwritten landing page or a missing cockpit page.
+          cp index.html outputs/index.html
+          cp cockpit.html outputs/cockpit.html
+          if [ -f outputs/sq_distortion_dashboard_generated.html ]; then
+            cp outputs/sq_distortion_dashboard_generated.html outputs/sq.html
+          else
+            echo "::warning::sq_distortion_dashboard_generated.html missing; keeping previous outputs/sq.html if any"
+          fi
 
       - name: Generate regime-transition panel
         run: python work/regime_transition.py --output-dir outputs
