@@ -77,4 +77,16 @@ SQカレンダー。
 | sq_scores.csv | 日次スコア、勝率、判定 |
 | sq_contributions.csv | 銘柄別寄与度、順位、モメンタム |
 | sq_latest_signal.json | 最新日の判定サマリー |
-| sq_distortion_dashboard_generated.html | 自動生成ダッシュボード |
+| sq_distortion_dashboard_generated.html | 自動生成ダッシュボード（`sq.html`の元データ） |
+| regime_transition.json | cockpit.html第1層のレジーム転換6条件パネル用（`work/regime_transition.py`が生成） |
+
+## v3で追加した設定・永続化ファイル
+
+| file | description |
+|---|---|
+| work/config/sector_baskets.json | 改修2のセクターバスケット定義（現在は`semiconductor`のみ）。銘柄リストをコードから外出し |
+| data/regime_manual_inputs.json | 改修1の手動入力条件（2. 企業利益予想の下方修正、4. AI capexの後退）。人が編集してコミットする。CIは読むだけで書き換えない |
+| data/regime_transition_state.json | 改修1の自動取得4条件（1,3,5,6）のlast-known-goodアーカイブ。CIが毎回書き換える。手動入力は混ざらない |
+| data/sq_score_history.csv | 改修3のスコア履歴アーカイブ。append-only・immutable（既存日付の行は再実行しても上書きされない）。`zscore_window`・`basis_included`列でロジック世代を区別できる |
+
+これらのうち `data/*` はCIが `[skip ci]` 付きコミットで書き戻す（`.github/workflows/pages.yml`）。`data/regime_manual_inputs.json` だけは例外で、常に人が手で編集する。

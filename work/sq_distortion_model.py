@@ -64,14 +64,45 @@ class ModelConfig:
     post_sq_days: int = 3
     up_threshold: float = 0.60
     down_threshold: float = 0.40
+    # 全期間z-scoreは日々の再計算で過去日の判定まで書き換わってしまうため、
+    # 直近N営業日のtrailing windowでz-score化する。252営業日=約1年（SQ12回分）。
+    zscore_window: int = 252
+    zscore_min_periods: int = 20
+    # 改修3: 上方向SQ圧力と下方向剥落リスクの乖離が一定以上ある「中立」判定を
+    # より情報量のあるラベルに倒すための閾値。basis除外・rolling z-score適用後の
+    # 実データ（2024/08-2026/08、487営業日、p_upが中立域0.40-0.60の203日）で
+    # |up_down_gap| の分布はp75=0.31・p80=0.38・p90=0.45。p80付近を採用。
+    asym_gap_threshold: float = 0.40
+    # 改修2: 半導体バスケット（追跡15銘柄中5銘柄）の寄与度シェア（当日の指数変動の
+    # うち半導体が占める割合）の警告色境界。同じ実データでの分布はp50=0.57・
+    # p75=0.70・p90=0.79。p75/p90を採用。
+    sector_abs_share_watch: float = 0.70
+    sector_abs_share_alert: float = 0.80
 
 
 def zscore(series: pd.Series) -> pd.Series:
+    """Whole-sample z-score. Kept for callers that intentionally want a fixed
+    baseline (e.g. one-off diagnostics). Score composition should use
+    rolling_zscore so a past day's score does not change as new days arrive.
+    """
     values = pd.to_numeric(series, errors="coerce")
     std = values.std(ddof=0)
     if not np.isfinite(std) or std == 0:
         return pd.Series(np.zeros(len(values)), index=series.index)
     return (values - values.mean()) / std
+
+
+def rolling_zscore(series: pd.Series, window: int, min_periods: int) -> pd.Series:
+    """Trailing-window z-score. Because the window only looks backward, a
+    given date's score is stable across reruns even as new days are appended
+    — unlike a whole-sample z-score, which shifts every past day's score
+    whenever the sample grows.
+    """
+    values = pd.to_numeric(series, errors="coerce")
+    mean = values.rolling(window, min_periods=min_periods).mean()
+    std = values.rolling(window, min_periods=min_periods).std(ddof=0)
+    z = (values - mean) / std.replace(0, np.nan)
+    return z.fillna(0.0)
 
 
 def logistic(value: pd.Series | float) -> pd.Series | float:
@@ -156,6 +187,40 @@ def compute_contributions(constituents: pd.DataFrame, cfg: ModelConfig) -> tuple
     return daily, ranked
 
 
+def load_sector_baskets(path: Path | None) -> dict:
+    if path is None or not path.exists():
+        return {}
+    return json.loads(path.read_text(encoding="utf-8"))
+
+
+def compute_sector_exposure(ranked: pd.DataFrame, tickers: list[str]) -> pd.DataFrame:
+    """Daily aggregate exposure of a ticker basket within the tracked universe.
+
+    sector_abs_share is the fraction of the day's total |contribution| that
+    the basket accounts for — i.e. how much of today's index move is coming
+    from the basket, regardless of a separate "avoid the basket individually"
+    decision. This is a visibility metric, not a trading signal.
+    """
+    df = ranked.copy()
+    df["date"] = pd.to_datetime(df["date"])
+    total_abs = df.groupby("date")["contribution_raw"].apply(lambda s: s.abs().sum())
+    basket = df[df["ticker"].isin(tickers)]
+    if basket.empty:
+        return pd.DataFrame(columns=["date", "sector_contribution", "sector_abs_share", "sector_weight"])
+    sector_sum = basket.groupby("date")["contribution_raw"].sum()
+    sector_abs_sum = basket.groupby("date")["contribution_raw"].apply(lambda s: s.abs().sum())
+    sector_weight = basket.groupby("date")["index_weight"].sum()
+    out = pd.DataFrame(
+        {
+            "sector_contribution": sector_sum,
+            "sector_abs_share": sector_abs_sum / total_abs.reindex(sector_abs_sum.index).replace(0, np.nan),
+            "sector_weight": sector_weight,
+        }
+    ).reset_index()
+    out["sector_abs_share"] = out["sector_abs_share"].fillna(0.0)
+    return out
+
+
 def compute_option_features(options: pd.DataFrame, index_daily: pd.DataFrame) -> pd.DataFrame:
     opt = options.copy()
     opt["date"] = pd.to_datetime(opt["date"])
@@ -195,6 +260,7 @@ def compute_scores(
     options: pd.DataFrame,
     sq_calendar: pd.DataFrame,
     cfg: ModelConfig,
+    sector_tickers: list[str] | None = None,
 ) -> tuple[pd.DataFrame, pd.DataFrame]:
     idx = index_daily.copy()
     idx["date"] = pd.to_datetime(idx["date"])
@@ -242,34 +308,55 @@ def compute_scores(
         1,
         0,
     )
-    daily["breadth_divergence"] = daily["nikkei_return"] - zscore(daily["advancers_ratio"])
+    def rz(series: pd.Series) -> pd.Series:
+        return rolling_zscore(series, cfg.zscore_window, cfg.zscore_min_periods)
+
+    daily["breadth_divergence"] = daily["nikkei_return"] - rz(daily["advancers_ratio"])
     daily["index_distortion"] = (
-        zscore(daily["nikkei_topix_gap"])
-        + zscore(daily["contribution_concentration"])
-        - zscore(daily["advancers_ratio"])
+        rz(daily["nikkei_topix_gap"])
+        + rz(daily["contribution_concentration"])
+        - rz(daily["advancers_ratio"])
     )
-    daily["basis_score"] = zscore(daily["basis_atr"])
+    # 先物ベーシスは futures_close が現物のプレースホルダー（fetch_market_data.py参照）で
+    # 常に0になる構造的な未接続状態のため、合成スコアからは除外する。basis/basis_atr/
+    # basis_score列は先物データを接続した際の参考用に残す。
+    daily["basis_score"] = rz(daily["basis_atr"])
 
     daily["sq_up_pressure"] = (
-        0.30 * zscore(daily["contribution_trend"])
-        + 0.25 * zscore(daily["option_bias"])
-        + 0.20 * daily["basis_score"]
-        + 0.15 * zscore(daily["index_distortion"])
-        + 0.10 * daily["time_pressure"]
+        0.375 * rz(daily["contribution_trend"])
+        + 0.3125 * rz(daily["option_bias"])
+        + 0.1875 * rz(daily["index_distortion"])
+        + 0.125 * daily["time_pressure"]
     )
     daily["sq_down_risk"] = (
-        0.25 * zscore(-daily["contribution_trend"])
-        + 0.20 * zscore(-daily["option_bias"])
-        + 0.20 * zscore(-daily["basis_score"])
-        + 0.20 * zscore(daily["index_distortion"])
-        + 0.15 * daily["post_sq_flag"]
+        0.3125 * rz(-daily["contribution_trend"])
+        + 0.25 * rz(-daily["option_bias"])
+        + 0.25 * rz(daily["index_distortion"])
+        + 0.1875 * daily["post_sq_flag"]
     )
     daily["p_up"] = logistic(-0.05 + 0.85 * daily["sq_up_pressure"] - 0.65 * daily["sq_down_risk"])
+
+    # 改修3: 上方向圧力と下方向リスクの乖離が大きい「中立」判定を、より情報量のある
+    # ラベルに倒す。乖離幅は sq_up_pressure - sq_down_risk。中立域の中でも下方向が
+    # 明確に深ければ DOWN_WATCH、上方向が明確に強ければ UP_WATCH。
+    daily["up_down_gap"] = daily["sq_up_pressure"] - daily["sq_down_risk"]
     daily["signal"] = np.select(
-        [daily["p_up"] >= cfg.up_threshold, daily["p_up"] <= cfg.down_threshold],
-        ["UP_BIAS", "DOWN_BIAS"],
+        [
+            daily["p_up"] >= cfg.up_threshold,
+            daily["p_up"] <= cfg.down_threshold,
+            daily["up_down_gap"] <= -cfg.asym_gap_threshold,
+            daily["up_down_gap"] >= cfg.asym_gap_threshold,
+        ],
+        ["UP_BIAS", "DOWN_BIAS", "DOWN_WATCH", "UP_WATCH"],
         default="NEUTRAL",
     )
+
+    if sector_tickers:
+        sector = compute_sector_exposure(ranked, sector_tickers)
+        daily = daily.merge(sector, on="date", how="left")
+        daily[["sector_contribution", "sector_abs_share", "sector_weight"]] = daily[
+            ["sector_contribution", "sector_abs_share", "sector_weight"]
+        ].fillna(0.0)
 
     return daily.sort_values("date"), ranked.sort_values(["date", "contribution_rank"])
 
@@ -451,8 +538,24 @@ def write_dashboard(
     label = {
         "UP_BIAS": "上方向優位",
         "DOWN_BIAS": "下方向優位",
+        "DOWN_WATCH": "下方向警戒",
+        "UP_WATCH": "上方向警戒",
         "NEUTRAL": "中立",
     }.get(str(latest["signal"]), "中立")
+
+    sector_html = ""
+    if "sector_abs_share" in latest.index:
+        share = float(latest["sector_abs_share"])
+        weight = float(latest.get("sector_weight", 0.0))
+        contrib = float(latest.get("sector_contribution", 0.0))
+        if share >= cfg.sector_abs_share_alert:
+            sector_color, sector_tag = "var(--up)", "強い連動"
+        elif share >= cfg.sector_abs_share_watch:
+            sector_color, sector_tag = "var(--warn)", "連動注意"
+        else:
+            sector_color, sector_tag = "var(--good)", "限定的"
+        sector_html = f"""
+      <section class="span-3"><h2>半導体バスケット連動度</h2><div class="metric"><strong style="color:{sector_color}">{pct(share)}</strong><small>当日|寄与|シェア</small></div><div class="meter" style="--value:{min(100, share * 100):.0f}%"><div style="background:{sector_color};"></div></div><div class="note">寄与合計 {contrib:+.1f} / 追跡銘柄内ウェイト {pct(weight)}。{sector_tag}。個別で回避していても指数β経由で取り込む量の可視化（売買判断ではない）。</div></section>"""
     metadata_path = out_path.parent / "data_source_metadata.json"
     source_notice = ""
     if metadata_path.exists():
@@ -506,10 +609,10 @@ def write_dashboard(
   </header>
   <main>
     <div class="grid">
-      <section class="span-3"><h2>上方向SQ圧力</h2><div class="metric"><strong class="pos">{fmt(latest['sq_up_pressure'])}</strong><small>z-like</small></div><div class="meter" style="--value:{meter_up:.0f}%"><div></div></div><div class="note">寄与度トレンド、オプションバイアス、先物ベーシス、SQ接近度の合成。</div></section>
-      <section class="span-3"><h2>下方向剥落リスク</h2><div class="metric"><strong class="neg">{fmt(latest['sq_down_risk'])}</strong><small>z-like</small></div><div class="meter" style="--value:{meter_down:.0f}%"><div style="background:linear-gradient(90deg,var(--down),var(--warn));"></div></div><div class="note">SQ後フラグ、逆方向寄与度、ベーシス悪化、指数歪みの合成。</div></section>
+      <section class="span-3"><h2>上方向SQ圧力</h2><div class="metric"><strong class="pos">{fmt(latest['sq_up_pressure'])}</strong><small>z-like(直近{cfg.zscore_window}日窓)</small></div><div class="meter" style="--value:{meter_up:.0f}%"><div></div></div><div class="note">寄与度トレンド、オプションバイアス、指数歪み、SQ接近度の合成（先物ベーシスは未接続のため除外）。</div></section>
+      <section class="span-3"><h2>下方向剥落リスク</h2><div class="metric"><strong class="neg">{fmt(latest['sq_down_risk'])}</strong><small>z-like(直近{cfg.zscore_window}日窓)</small></div><div class="meter" style="--value:{meter_down:.0f}%"><div style="background:linear-gradient(90deg,var(--down),var(--warn));"></div></div><div class="note">SQ後フラグ、逆方向寄与度、指数歪みの合成（先物ベーシスは未接続のため除外）。</div></section>
       <section class="span-3"><h2>推定勝率</h2><div class="metric"><strong>{pct(latest['p_up'])}</strong><small>翌日上昇</small></div><div class="meter" style="--value:{latest['p_up'] * 100:.0f}%"><div style="background:linear-gradient(90deg,var(--good),var(--accent));"></div></div><div class="note">閾値: 上方向 {cfg.up_threshold:.0%} / 下方向 {cfg.down_threshold:.0%}</div></section>
-      <section class="span-3"><h2>判定</h2><span class="badge">{label}</span><div class="note">SQまで {int(latest['days_to_sq'])} 営業日。TimePressure={fmt(latest['time_pressure'])}</div></section>
+      <section class="span-3"><h2>判定</h2><span class="badge">{label}</span><div class="note">SQまで {int(latest['days_to_sq'])} 営業日。TimePressure={fmt(latest['time_pressure'])}</div></section>{sector_html}
       <section class="span-7">
         <h2>指数と歪みスコア</h2>
         <div class="legend"><span><i class="dot" style="background:var(--ink);"></i>日経225</span><span><i class="dot" style="background:var(--up);"></i>SQ上方向圧力</span><span><i class="dot" style="background:var(--down);"></i>下方向リスク</span></div>
@@ -550,7 +653,8 @@ def write_dashboard(
         <table><thead><tr><th>指標</th><th>値</th><th>説明</th></tr></thead><tbody>
           <tr><td>寄与度トレンド</td><td>{fmt(latest['contribution_trend'], 4)}</td><td>高寄与度銘柄の指数ウェイト付きモメンタム</td></tr>
           <tr><td>オプションバイアス</td><td>{fmt(latest['option_bias'])}</td><td>上方Call吸引と下方Put吸引の差</td></tr>
-          <tr><td>先物ベーシス</td><td>{fmt(latest['basis'])}</td><td>日経225先物 - 現物指数</td></tr>
+          <tr><td>先物ベーシス（参考・未使用）</td><td>{fmt(latest['basis'])}</td><td>日経225先物 - 現物指数。先物データ未接続のため常に0。合成スコアからは除外済み</td></tr>
+          <tr><td>乖離（上方向-下方向）</td><td>{fmt(latest['up_down_gap'])}</td><td>{cfg.asym_gap_threshold:.2f}以上/以下で中立から警戒ラベルへ</td></tr>
           <tr><td>指数歪み</td><td>{fmt(latest['index_distortion'])}</td><td>日経平均との差、寄与度集中、騰落比率の合成</td></tr>
           <tr><td>寄与度集中</td><td>{pct(latest['contribution_concentration'])}</td><td>上位{cfg.top_k}銘柄の絶対寄与度シェア</td></tr>
         </tbody></table>
@@ -663,14 +767,72 @@ def generate_sample_data(out_dir: Path) -> None:
     ).to_csv(out_dir / "sq_calendar.csv", index=False, encoding="utf-8")
 
 
-def run_pipeline(input_dir: Path, output_dir: Path, cfg: ModelConfig) -> None:
+HISTORY_COLUMNS = [
+    "date",
+    "nikkei_close",
+    "sq_up_pressure",
+    "sq_down_risk",
+    "up_down_gap",
+    "p_up",
+    "signal",
+    "days_to_sq",
+    "days_after_sq",
+    "sector_abs_share",
+]
+
+
+def append_score_history(scores: pd.DataFrame, history_path: Path, cfg: ModelConfig) -> None:
+    """Append today's computed rows to a persisted, git-tracked archive.
+
+    Append-only and immutable: a date already present in the file is never
+    rewritten, even if this run recomputes a different value for it (a later
+    code/logic change would otherwise silently rewrite history on every run,
+    reintroducing the same "past judgment changes over time" problem that
+    switching to a rolling z-score was meant to fix). Same-day reruns are
+    skipped, not merged. zscore_window/basis_included are stamped per row so
+    a schema/logic change is visible in the data rather than blended in
+    silently.
+    """
+    cols = [c for c in HISTORY_COLUMNS if c in scores.columns]
+    new_rows = scores[cols].copy()
+    new_rows["date"] = pd.to_datetime(new_rows["date"]).dt.strftime("%Y-%m-%d")
+    new_rows["zscore_window"] = cfg.zscore_window
+    # basisは futures_close が現物のプレースホルダーで常に0の構造的未接続状態のため、
+    # 現行ロジックでは合成スコアから除外している（sq_distortion_model.py compute_scores参照）。
+    new_rows["basis_included"] = False
+
+    if history_path.exists():
+        existing = pd.read_csv(history_path)
+        existing["date"] = pd.to_datetime(existing["date"]).dt.strftime("%Y-%m-%d")
+        known_dates = set(existing["date"])
+        appended = new_rows[~new_rows["date"].isin(known_dates)]
+        combined = pd.concat([existing, appended], ignore_index=True)
+    else:
+        combined = new_rows
+    combined = combined.sort_values("date")
+    history_path.parent.mkdir(parents=True, exist_ok=True)
+    combined.to_csv(history_path, index=False, encoding="utf-8")
+
+
+def run_pipeline(
+    input_dir: Path,
+    output_dir: Path,
+    cfg: ModelConfig,
+    sector_config_path: Path | None = None,
+    history_path: Path | None = None,
+) -> None:
     output_dir.mkdir(parents=True, exist_ok=True)
     constituents = read_csv(input_dir / "constituents_daily.csv", REQUIRED_CONSTITUENT_COLUMNS, "constituents_daily.csv")
     index_daily = read_csv(input_dir / "index_daily.csv", REQUIRED_INDEX_COLUMNS, "index_daily.csv")
     options = read_csv(input_dir / "options_oi.csv", REQUIRED_OPTION_COLUMNS, "options_oi.csv")
     sq_calendar = read_csv(input_dir / "sq_calendar.csv", REQUIRED_SQ_COLUMNS, "sq_calendar.csv")
 
-    scores, ranked = compute_scores(constituents, index_daily, options, sq_calendar, cfg)
+    sector_baskets = load_sector_baskets(sector_config_path)
+    sector_tickers = sector_baskets.get("semiconductor", {}).get("tickers")
+
+    scores, ranked = compute_scores(constituents, index_daily, options, sq_calendar, cfg, sector_tickers)
+    if history_path is not None:
+        append_score_history(scores, history_path, cfg)
     scores.to_csv(output_dir / "sq_scores.csv", index=False, encoding="utf-8")
     ranked.to_csv(output_dir / "sq_contributions.csv", index=False, encoding="utf-8")
     write_dashboard(scores, ranked, options, output_dir / "sq_distortion_dashboard_generated.html", cfg)
@@ -694,6 +856,13 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--generate-sample", action="store_true", help="Generate sample CSV inputs before scoring.")
     parser.add_argument("--top-k", type=int, default=10)
     parser.add_argument("--momentum-days", type=int, default=5)
+    parser.add_argument("--sector-config", type=Path, default=Path("work/config/sector_baskets.json"))
+    parser.add_argument(
+        "--history-path",
+        type=Path,
+        default=None,
+        help="Append daily scores to this CSV (e.g. data/sq_score_history.csv). Off by default for local/sample runs.",
+    )
     return parser.parse_args()
 
 
@@ -702,7 +871,7 @@ def main() -> None:
     cfg = ModelConfig(top_k=args.top_k, momentum_days=args.momentum_days)
     if args.generate_sample:
         generate_sample_data(args.input_dir)
-    run_pipeline(args.input_dir, args.output_dir, cfg)
+    run_pipeline(args.input_dir, args.output_dir, cfg, args.sector_config, args.history_path)
 
 
 if __name__ == "__main__":

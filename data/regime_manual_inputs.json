@@ -1,0 +1,17 @@
+{
+  "_readme": "改修1: レジーム転換6条件のうち条件2・4は自動取得できないため手動入力する。lit を null のままにすると『未評価』として点灯数の分母から除外される。手動で編集してこのファイルをコミットすること。CI（work/regime_transition.py）はこのファイルを読むだけで、書き換えない。",
+  "condition_2": {
+    "label": "企業利益予想が下方修正される（S&P500 forward EPS改定率）",
+    "lit": null,
+    "value": null,
+    "as_of": null,
+    "note": ""
+  },
+  "condition_4": {
+    "label": "AI投資の収益性・生産性期待が後退する（ハイパースケーラーのCapExガイダンスと株価反応）",
+    "lit": null,
+    "value": null,
+    "as_of": null,
+    "note": ""
+  }
+}

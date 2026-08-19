@@ -390,3 +390,73 @@ and 上位寄与銘柄の上昇が失速
 - 半導体バスケットとの連動スコア
 - SQ前後だけを対象にしたロジスティック回帰
 - データ欠損時のフォールバックロジック
+
+## v3改修（2026-08-19）で入った変更
+
+### z-scoreをrolling windowに変更
+
+`zscore()`（全期間平均・標準偏差）は、日々データが増えるたびに過去日の合成スコアまで
+書き換わってしまう問題があった。`rolling_zscore()`（trailing 252営業日窓、`min_periods=20`）
+に置き換え、ある日のスコアはその日以前のデータだけで決まり、以降データが増えても
+変わらないようにした（`ModelConfig.zscore_window`）。
+
+### 先物ベーシスを合成スコアから除外
+
+`futures_close` は現物指数のプレースホルダー（`fetch_market_data.py`参照。実先物データ未接続）
+のため `basis` は常に0で、`SQ_UpPressure`/`SQ_DownRisk` の各20%ウェイトが常時死んでいた。
+先物データを接続するまでは合成スコアから除外し、残り4項目で重みを再配分する。
+
+```text
+SQ_UpPressure_t =
+  0.375 * z(ContributionTrend_t)
+  + 0.3125 * z(OptionBias_t)
+  + 0.1875 * z(IndexDistortion_t)
+  + 0.125 * TimePressure_t
+
+SQ_DownRisk_t =
+  0.3125 * z(-ContributionTrend_t)
+  + 0.25 * z(-OptionBias_t)
+  + 0.25 * z(IndexDistortion_t)
+  + 0.1875 * PostSQFlag_t
+```
+
+`basis`/`basis_atr`/`basis_score`列は先物データ接続時の参考用に出力に残している。
+
+### 判定ラベルの非対称化（改修3）
+
+`SQ_UpPressure_t - SQ_DownRisk_t`（`up_down_gap`）が中立域（`0.40 < p_up < 0.60`）の中でも
+大きい場合、「中立」より情報量のあるラベルに倒す。
+
+```text
+up_down_gap <= -0.40 かつ 中立域: DOWN_WATCH（下方向警戒）
+up_down_gap >=  0.40 かつ 中立域: UP_WATCH（上方向警戒）
+```
+
+閾値0.40は、basis除外・rolling z-score適用後の実データ（2024/08-2026/08、487営業日、
+うち中立域203日）における `|up_down_gap|` の分布（p75=0.31, p80=0.38, p90=0.45）のp80付近から設定。
+`ModelConfig.asym_gap_threshold`。
+
+### 半導体バスケット連動度（改修2）
+
+`work/config/sector_baskets.json` の `semiconductor` バスケット（285A/8035/6857/6920/6146）について、
+当日の総|寄与|に占めるシェア（`sector_abs_share`）をダッシュボードにKPIカードとして追加。
+「半導体は個別で回避」していても指数β経由で取り込む量を可視化するのが目的で、売買判断は出さない。
+警告色境界（同じ実データ、p50=0.57・p75=0.70・p90=0.79）:
+
+```text
+sector_abs_share >= 0.80: 強い連動（赤）
+sector_abs_share >= 0.70: 連動注意（黄）
+sector_abs_share <  0.70: 限定的（緑）
+```
+
+`ModelConfig.sector_abs_share_watch` / `sector_abs_share_alert`。
+`sector_weight`（追跡バスケット内でのウェイト合計）は参考値。追跡バスケットは
+`fetch_market_data.py`の`TRACKED_COMPONENTS`（日経225全225銘柄ではなく高寄与度な
+追跡サブセット）に対する相対値であり、実際の日経225指数ウェイトそのものではない点に注意。
+
+### スコア履歴の永続化
+
+`data/sq_score_history.csv` に日次スコアをappend-onlyで蓄積する（`append_score_history()`）。
+既存日付の行は後続の実行で上書きされない。GitHub Actionsのビルドは実行のたびに
+`outputs/`を再生成するだけでリポジトリにコミットしないため、このアーカイブがないと
+過去の判定を検証する手段がなかった。

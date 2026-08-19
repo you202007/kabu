@@ -19,7 +19,7 @@
 
 | レイヤー | 時間軸 | 役割 | 中身 |
 |---|---|---|---|
-| 第1層 レジーム | 構造・週次 | スタンスを決める | 9KPI（円の避難挙動／USDJPY／米実質金利／Fed／JGB vs 3%／原油・地政学／AI・capex／資金ストレス／流動性）→ 4レジーム分類＋資産の傾き |
+| 第1層 レジーム | 構造・週次 | スタンスを決める | レジーム転換6条件パネル（自動判定4件＋手動入力2件、`outputs/regime_transition.json`をfetch）＋9KPI（円の避難挙動／USDJPY／米実質金利／Fed／JGB vs 3%／原油・地政学／AI・capex／資金ストレス／流動性）→ 4レジーム分類＋資産の傾き |
 | 第2層 SQ戦術 | 需給・SQ週 | 執行モードを決める | SQ距離／D-1出来高／Max Pain／Pinning／CME夜間 → **レジーム×SQ** で執行モードが反転（ピン順張り／ブレイク追随／見送り） |
 | 第3層 フロー警報 | カレンダー | 接近イベントを警戒 | 四半期末リバランス・配当再投資・指数リバランス（FTSE/Russell・MSCI・日経225）・SQ・決算/自社株買いブラックアウト等を自動計算し、接近アラート＋直近通過を表示 |
 
@@ -27,6 +27,8 @@
 同じ D-1 出来高スパイクでも、リスクオンなら「収束取り（ピン順張り）」、抑圧・危機なら「回避／ブレイク追随」に反転する。
 
 `cockpit.html` は SQダッシュボード（`sq.html`）で読んだ実数値（D-1出来高の異常度、Max Painとの位置、Pinning状態）をSQ戦術パネルに手入力して使う。データは下から（`sq.html`）、判断は上から（`cockpit.html`）。
+
+第1層のレジーム転換6条件パネルだけは例外で、`work/regime_transition.py`（FRED・yfinance）が生成する`outputs/regime_transition.json`を`cockpit.html`がブラウザから直接fetchして自動点灯する（条件1・3・5・6）。条件2（企業利益予想）・条件4（AI capex）は自動取得できないため`data/regime_manual_inputs.json`に手動入力する。取得失敗時は`data/regime_transition_state.json`（CIが管理するlast-known-goodアーカイブ）から前回値を維持し、鮮度を条件ごとに表示する。JSON自体が読めない場合もパネルだけが縮退し、他のパネルは通常どおり動く。
 
 「この週を記録」でスナップショットを保存（ブラウザのストレージに保持。レジーム遷移を週次で追える）。
 
@@ -115,11 +117,13 @@ GitHub Actionsでは、Repository Secretsに `JQUANTS_API_KEY` を設定する�
 `.github/workflows/pages.yml` により、`main` ブランチへpushされるたび（および平日20:00 JSTの定期実行）に以下を実行します。
 
 1. Python依存関係をインストール
-2. Yahoo Financeから株価・指数を取得
+2. Yahoo Financeから株価・指数を取得（既定`--period 2y`。rolling z-score用の窓を確保するため）
 3. オプション建玉CSVがない場合は暫定プロキシを生成
 4. `outputs/sq_distortion_dashboard_generated.html` を `outputs/sq.html` にコピー
 5. ルートの `index.html`・`cockpit.html`（静的ファイル）を `outputs/` にコピー
-6. `outputs` ディレクトリをGitHub Pagesへデプロイ（`index.html`・`cockpit.html`・`sq.html` の3ページ構成で公開）
+6. `work/regime_transition.py` を実行し `outputs/regime_transition.json` を生成
+7. `data/sq_score_history.csv`・`data/regime_transition_state.json` を`[skip ci]`付きでリポジトリにコミット（bot commit、無限ループ回避）
+8. `outputs` ディレクトリをGitHub Pagesへデプロイ（`index.html`・`cockpit.html`・`sq.html` の3ページ構成で公開）
 
 実際のオプション建玉を接続する場合は、WorkflowにCSV取得処理を追加し、`--allow-proxy-options` を外します。
 
@@ -128,6 +132,8 @@ GitHub Actionsでは、Repository Secretsに `JQUANTS_API_KEY` を設定する�
 - 祝日リスト（`jpholiday` 相当）を組み込み、営業日判定を厳密化
 - イベント項目の拡充（先物限月交代・TOPIX浮動株見直し・大型ETFの分配金捻出売り 等）
 - SQダッシュボードとコックピットSQ戦術パネルの連携（現状は手入力）
+- 日経225先物の実データ接続（現状`futures_close`は現物のプレースホルダーで、先物ベーシスは合成スコアから除外中）
+- 当局介入トラッカー（v3追加⑦）、ゴールド・テーゼ判定フラグ名目/実質分離表示（v3追加⑨）、長期債需給フローパネル（v3追加⑧）
 
 ---
 *Generated with Claude. 判断補助ツールであり投資助言ではありません。*

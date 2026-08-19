@@ -42,6 +42,7 @@ TRACKED_COMPONENTS = [
     {"ticker": "8035", "yf": "8035.T", "name": "東京エレクトロン", "adj_factor": 1.40},
     {"ticker": "9983", "yf": "9983.T", "name": "ファーストリテイリング", "adj_factor": 2.70},
     {"ticker": "6920", "yf": "6920.T", "name": "レーザーテック", "adj_factor": 0.90},
+    {"ticker": "6146", "yf": "6146.T", "name": "ディスコ", "adj_factor": 1.00},
     {"ticker": "6098", "yf": "6098.T", "name": "リクルート", "adj_factor": 1.00},
     {"ticker": "4063", "yf": "4063.T", "name": "信越化学", "adj_factor": 1.00},
     {"ticker": "4519", "yf": "4519.T", "name": "中外製薬", "adj_factor": 1.00},
@@ -424,6 +425,13 @@ def parse_args() -> argparse.Namespace:
         action="store_true",
         help="Generate a clearly marked proxy option OI surface when no real options CSV is supplied.",
     )
+    parser.add_argument("--sector-config", type=Path, default=Path("work/config/sector_baskets.json"))
+    parser.add_argument(
+        "--history-path",
+        type=Path,
+        default=Path("data/sq_score_history.csv"),
+        help="Persisted, git-tracked archive of daily scores for later threshold audits.",
+    )
     return parser.parse_args()
 
 
@@ -476,7 +484,7 @@ def main() -> None:
         json.dumps(metadata, ensure_ascii=False, indent=2),
         encoding="utf-8",
     )
-    run_pipeline(args.input_dir, args.output_dir, ModelConfig())
+    run_pipeline(args.input_dir, args.output_dir, ModelConfig(), args.sector_config, args.history_path)
 
 
 if __name__ == "__main__":
