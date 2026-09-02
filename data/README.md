@@ -61,3 +61,15 @@ type = PCDiv 1 -> P, 2 -> C
 strike = Strike
 open_interest = OI
 ```
+
+## J-Quants契約終了に備えたローカル退避（2026-09-19解約）
+
+`/derivatives/bars/daily/options/225` の生データを `work/archive_jquants_options.py` でローカルに退避できます。
+
+**重要**: 退避先はリポジトリの**外**（既定 `~/Documents/jquants_options_archive/`）に固定されています。J-Quants利用規約は「取得データを第三者が閲覧できる形で保存・配布すること」を禁じており、このリポジトリはpublicなので、`data/` 配下を含めリポジトリ内には一切コミットしません。スクリプト自体（コード）はこのリポジトリで管理しますが、生成される `.json.gz` / `manifest.csv` は対象外です。
+
+```bash
+python work/archive_jquants_options.py --years-back 10
+```
+
+`JQUANTS_API_KEY` は環境変数、`--api-key`、またはリポジトリ直下の `.env`（gitignore対象）から読みます。日付ごとに `raw/YYYY-MM-DD.json.gz`（APIレスポンスそのまま）と `manifest.csv`（date, status, record_count, fetched_at, error）を書き出し、`status` が `ok`/`no_data`/`out_of_plan_range` の日付は再実行時にスキップされる（`error` のみ再取得対象）ため、中断しても再開できます。
