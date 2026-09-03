@@ -68,16 +68,44 @@ class ModelConfig:
     # 直近N営業日のtrailing windowでz-score化する。252営業日=約1年（SQ12回分）。
     zscore_window: int = 252
     zscore_min_periods: int = 20
-    # 改修3: 上方向SQ圧力と下方向剥落リスクの乖離が一定以上ある「中立」判定を
-    # より情報量のあるラベルに倒すための閾値。basis除外・rolling z-score適用後の
-    # 実データ（2024/08-2026/08、487営業日、p_upが中立域0.40-0.60の203日）で
-    # |up_down_gap| の分布はp75=0.31・p80=0.38・p90=0.45。p80付近を採用。
-    asym_gap_threshold: float = 0.40
-    # 改修2: 半導体バスケット（追跡15銘柄中5銘柄）の寄与度シェア（当日の指数変動の
-    # うち半導体が占める割合）の警告色境界。同じ実データでの分布はp50=0.57・
-    # p75=0.70・p90=0.79。p75/p90を採用。
-    sector_abs_share_watch: float = 0.70
-    sector_abs_share_alert: float = 0.80
+    # 改修3: 上方向SQ圧力と下方向剥落リスクの乖離が一定以上ある「中立」判定を、
+    # より情報量のあるラベル（UP_WATCH/DOWN_WATCH）に倒すための閾値。
+    #
+    # これは予測性能を検証した値ではなく、表示頻度を選んだ設計判断である
+    # （2026-09-03時点で「発火した翌日の値動きが実際に非対称だったか」の
+    # 事後検証は未実施。3〜6ヶ月運用後に検証すること）。
+    #
+    # 決定に使ったデータ: 本番CIが蓄積した data/sq_score_history.csv
+    # （2024-08-20〜2026-09-02、497営業日、p_upが中立域0.40-0.60の262日）。
+    # |up_down_gap| の分布はp75=0.37・p80=0.42・p85=0.45・p90=0.48。
+    # p85（月1.68回発火、目標「月1〜2回」に整合）を採用。現行0.40だと月2.34回で
+    # 頻発しすぎると判断した。
+    #
+    # 固定値である理由: rolling分位（常にp85）にすれば発火率は安定するが、
+    # ラベルの意味が時期によって変わってしまう。「過去の判定が後から書き換わらない
+    # こと」を優先した今回の修正（basis除外・rolling z-score）の趣旨に反するため、
+    # 固定値を採用する。
+    #
+    # 既知の非対称性: 上記262日でUP_WATCHはDOWN_WATCHの3〜7倍多く発火する
+    # （閾値0.45ではUP_WATCH 35件 / DOWN_WATCH 6件）。当初の動機だった2026/8/12は
+    # 下方向のケースだったが、データ全体では上方向の見落とし検知として機能する
+    # 頻度の方が高い。悪いことではないが、設計意図とはずれている。今は対称の
+    # 単一閾値で運用し、発火率を記録する。UP/DOWNで別閾値にする案は、事後検証の後で
+    # 検討する。
+    #
+    # 見直しの前提: 年1回程度、または月間発火率が3回を超えたら再検討する。
+    asym_gap_threshold: float = 0.45
+    # 改修2: 半導体バスケット（追跡15銘柄中5銘柄: 285A/8035/6857/6920/6146）の
+    # abs寄与シェア（当日の指数変動のうち半導体が占める割合）の基準線と警告閾値。
+    #
+    # 中央値を「常態」の基準線として常時併記する（中央値が57%なら、それは乖離では
+    # なく日経の常態であるため）。警告色は極端な値（p95相当）のみに絞り、
+    # 「乖離検知」ではなく「常態の把握」を目的とする。
+    #
+    # 決定に使ったデータ: data/sq_score_history.csv（2024-08-20〜2026-09-02、
+    # 497営業日）。分布は中央値=0.567・p75=0.699・p90=0.787・p95=0.830。
+    sector_abs_share_median_baseline: float = 0.567
+    sector_abs_share_alert: float = 0.830
 
 
 def zscore(series: pd.Series) -> pd.Series:
@@ -586,16 +614,17 @@ def write_dashboard(
     sector_html = ""
     if "sector_abs_share" in latest.index:
         share = float(latest["sector_abs_share"])
-        weight = float(latest.get("sector_weight", 0.0))
         contrib = float(latest.get("sector_contribution", 0.0))
+        baseline = cfg.sector_abs_share_median_baseline
+        # 「乖離検知」ではなく「常態の把握」が目的。中央値を常時併記し、警告色は
+        # 極端な値（p95相当）のみに絞る。バスケット内相対ウェイトは、実指数
+        # ウェイトと誤読される危険が情報価値を上回るため表示しない。
         if share >= cfg.sector_abs_share_alert:
-            sector_color, sector_tag = "var(--up)", "強い連動"
-        elif share >= cfg.sector_abs_share_watch:
-            sector_color, sector_tag = "var(--warn)", "連動注意"
+            sector_color = "var(--up)"
         else:
-            sector_color, sector_tag = "var(--good)", "限定的"
+            sector_color = "var(--ink)"
         sector_html = f"""
-      <section class="span-3"><h2>半導体バスケット連動度</h2><div class="metric"><strong style="color:{sector_color}">{pct(share)}</strong><small>当日|寄与|シェア</small></div><div class="meter" style="--value:{min(100, share * 100):.0f}%"><div style="background:{sector_color};"></div></div><div class="note">寄与合計 {contrib:+.1f} / 追跡銘柄内ウェイト {pct(weight)}。{sector_tag}。個別で回避していても指数β経由で取り込む量の可視化（売買判断ではない）。</div></section>"""
+      <section class="span-3"><h2>半導体バスケット連動度</h2><div class="metric"><strong style="color:{sector_color}">{pct(share)}</strong><small>中央値 {pct(baseline)}</small></div><div class="meter" style="--value:{min(100, share * 100):.0f}%"><div style="background:{sector_color};"></div></div><div class="note">寄与合計 {contrib:+.1f}。個別で回避していても指数β経由で取り込む量の可視化（追跡バスケット内の相対値、売買判断ではない）。</div></section>"""
     metadata_path = out_path.parent / "data_source_metadata.json"
     source_notice = ""
     if metadata_path.exists():
